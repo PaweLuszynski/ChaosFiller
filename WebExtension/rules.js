@@ -275,7 +275,9 @@
       : getFallbackGenerator(element);
 
     const resolvedKey = inferResolvedKey(element, bundle, matchedRule, generator);
-    const fixedValueLookup = lookupFixedValue(config.fixedValues, resolvedKey);
+    const overrideEnabled = typeof matchedRule?.overrideEnabled === "boolean"
+      ? matchedRule.overrideEnabled
+      : (typeof matchedRule?.overrideValue === "string" && matchedRule.overrideValue.length > 0);
 
     return {
       source,
@@ -283,9 +285,10 @@
       outputMask: typeof matchedRule?.outputMask === "string" ? matchedRule.outputMask : "",
       generator,
       resolvedKey,
+      overrideEnabled,
       overrideValue: typeof matchedRule?.overrideValue === "string" ? matchedRule.overrideValue : "",
-      fixedValue: fixedValueLookup.found ? fixedValueLookup.value : null,
-      hasFixedValue: fixedValueLookup.found
+      fixedValue: null,
+      hasFixedValue: false
     };
   }
 

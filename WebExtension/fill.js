@@ -172,7 +172,10 @@
   }
 
   function shouldUseOverrideValue(resolved) {
-    return typeof resolved?.overrideValue === "string" && resolved.overrideValue.length > 0;
+    const enabled = typeof resolved?.overrideEnabled === "boolean"
+      ? resolved.overrideEnabled
+      : (typeof resolved?.overrideValue === "string" && resolved.overrideValue.length > 0);
+    return enabled && typeof resolved?.overrideValue === "string" && resolved.overrideValue.length > 0;
   }
 
   function resolveGeneratedValue(element, resolved, config, settings, context, bundle) {

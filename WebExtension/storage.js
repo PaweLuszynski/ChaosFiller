@@ -276,6 +276,9 @@
       outputMask: typeof safeRule.outputMask === "string" ? safeRule.outputMask : "",
       domainRegex: typeof safeRule.domainRegex === "string" ? safeRule.domainRegex : "",
       resolvedKey: safeString(safeRule.resolvedKey),
+      overrideEnabled: typeof safeRule.overrideEnabled === "boolean"
+        ? safeRule.overrideEnabled
+        : (typeof safeRule.overrideValue === "string" && safeRule.overrideValue.length > 0),
       overrideValue: typeof safeRule.overrideValue === "string" ? safeRule.overrideValue : "",
       enabled: safeRule.enabled !== false
     };

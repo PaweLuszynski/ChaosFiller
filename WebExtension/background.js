@@ -290,6 +290,7 @@
       },
       outputMask: generatorInfo.outputMask,
       resolvedKey: generatorInfo.resolvedKey,
+      overrideEnabled: false,
       overrideValue: "",
       domainRegex: "",
       enabled: true

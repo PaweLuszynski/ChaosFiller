@@ -178,9 +178,17 @@
       outputMask: "",
       domainRegex: "",
       resolvedKey: "",
+      overrideEnabled: false,
       overrideValue: "",
       enabled: true
     };
+  }
+
+  function ruleOverrideEnabled(rule) {
+    if (typeof rule?.overrideEnabled === "boolean") {
+      return rule.overrideEnabled;
+    }
+    return typeof rule?.overrideValue === "string" && rule.overrideValue.length > 0;
   }
 
   function ruleFieldValue(rule, field) {
@@ -205,6 +213,8 @@
         return rule.domainRegex || "";
       case "resolvedKey":
         return rule.resolvedKey || "";
+      case "overrideEnabled":
+        return ruleOverrideEnabled(rule);
       case "overrideValue":
         return rule.overrideValue || "";
       default:
@@ -257,6 +267,9 @@
       case "resolvedKey":
         rule.resolvedKey = String(value || "");
         return;
+      case "overrideEnabled":
+        rule.overrideEnabled = Boolean(value);
+        return;
       case "overrideValue":
         rule.overrideValue = String(value || "");
         return;
@@ -302,8 +315,12 @@
           <label>Resolved key
             <input data-kind="rule-field" data-scope="${scope}" data-domain="${escapeHtml(domainKey)}" data-rule-id="${escapeHtml(rule.id)}" data-field="resolvedKey" value="${escapeHtml(ruleFieldValue(rule, "resolvedKey"))}" />
           </label>
-          <label>Override value (optional)
-            <input data-kind="rule-field" data-scope="${scope}" data-domain="${escapeHtml(domainKey)}" data-rule-id="${escapeHtml(rule.id)}" data-field="overrideValue" value="${escapeHtml(ruleFieldValue(rule, "overrideValue"))}" />
+          <label class="inline">
+            <input type="checkbox" data-kind="rule-field" data-scope="${scope}" data-domain="${escapeHtml(domainKey)}" data-rule-id="${escapeHtml(rule.id)}" data-field="overrideEnabled" ${ruleFieldValue(rule, "overrideEnabled") ? "checked" : ""} />
+            Enable fixed value for this rule
+          </label>
+          <label>Fixed value (optional)
+            <input data-kind="rule-field" data-scope="${scope}" data-domain="${escapeHtml(domainKey)}" data-rule-id="${escapeHtml(rule.id)}" data-field="overrideValue" value="${escapeHtml(ruleFieldValue(rule, "overrideValue"))}" ${ruleFieldValue(rule, "overrideEnabled") ? "" : "disabled"} />
           </label>
           <label>Output mask
             <input data-kind="rule-field" data-scope="${scope}" data-domain="${escapeHtml(domainKey)}" data-rule-id="${escapeHtml(rule.id)}" data-field="outputMask" value="${escapeHtml(ruleFieldValue(rule, "outputMask"))}" />
@@ -473,11 +490,9 @@
   function renderDomainPanel(domain) {
     const overviewId = sectionIdForDomainPart(domain.id, "overview");
     const rulesId = sectionIdForDomainPart(domain.id, "rules");
-    const fixedId = sectionIdForDomainPart(domain.id, "fixed");
     const domainSection = sectionIdForDomain(domain.id);
 
     const rules = Array.isArray(domain.rules) ? domain.rules : [];
-    const fixedRows = ensureFixedRows(domain.id);
 
     return `
       <section class="panel section-anchor" id="${domainSection}">
@@ -528,21 +543,6 @@
               domainKey: domain.id,
               sectionId: sectionIdForRule("domain", domain.id, rule.id)
             })).join("")}
-          </div>
-        </section>
-
-        <section class="section-anchor" id="${fixedId}">
-          <h3>Fixed Values</h3>
-          <p class="muted">Used by domain-specific persona/session/random resolution by resolved key.</p>
-          <button data-action="add-fixed-row" data-domain="${escapeHtml(domain.id)}">Add fixed value row</button>
-          <div class="section-stack">
-            ${fixedRows.map((row) => `
-              <div class="fixed-row">
-                <input placeholder="key (e.g. email)" data-kind="fixed-key" data-domain="${escapeHtml(domain.id)}" data-row-id="${escapeHtml(row.id)}" value="${escapeHtml(row.key)}" />
-                <input placeholder="value" data-kind="fixed-value" data-domain="${escapeHtml(domain.id)}" data-row-id="${escapeHtml(row.id)}" value="${escapeHtml(row.value)}" />
-                <button data-action="remove-fixed-row" data-domain="${escapeHtml(domain.id)}" data-row-id="${escapeHtml(row.id)}">Remove</button>
-              </div>
-            `).join("")}
           </div>
         </section>
       </section>
@@ -757,7 +757,7 @@
 
       setRuleField(rule, field, target.type === "checkbox" ? target.checked : target.value, target.type === "checkbox");
 
-      if (field === "generator.type") {
+      if (field === "generator.type" || field === "overrideEnabled") {
         renderMainContent();
       }
       return;
