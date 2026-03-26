@@ -25,6 +25,7 @@
 
   const uiState = {
     domainsExpanded: false,
+    expandedDomains: new Set(),
     activeTarget: "section-general",
     fixedRows: {},
     toastTimer: null
@@ -350,11 +351,31 @@
       } else {
         for (const domain of domains) {
           const domainSectionId = sectionIdForDomain(domain.id);
+          const domainExpanded = uiState.expandedDomains.has(domain.id);
+          const domainRules = Array.isArray(domain.rules) ? domain.rules : [];
+
           html += `
-            <button class="nav-child ${uiState.activeTarget === domainSectionId ? "is-active" : ""}" data-action="select-domain" data-domain-key="${escapeHtml(domain.id)}">
+            <button class="domain-toggle ${uiState.activeTarget.startsWith(domainSectionId) ? "is-active" : ""}" data-action="toggle-domain" data-domain-key="${escapeHtml(domain.id)}">
               ${escapeHtml(domain.label)}
             </button>
           `;
+
+          if (domainExpanded) {
+            html += `<div class="domain-children">`;
+            if (domainRules.length === 0) {
+              html += `<div class="muted">No rules</div>`;
+            } else {
+              for (const rule of domainRules) {
+                const ruleSectionId = sectionIdForRule("domain", domain.id, rule.id);
+                html += `
+                  <button class="nav-child ${uiState.activeTarget === ruleSectionId ? "is-active" : ""}" data-nav-target="${ruleSectionId}" data-domain-key="${escapeHtml(domain.id)}">
+                    ${escapeHtml(rule.title || rule.id)}
+                  </button>
+                `;
+              }
+            }
+            html += `</div>`;
+          }
         }
       }
       html += `</div>`;
@@ -655,10 +676,26 @@
       return;
     }
 
+    if (action === "toggle-domain") {
+      const domainKey = button.dataset.domainKey;
+      if (!domainKey) return;
+
+      if (uiState.expandedDomains.has(domainKey)) {
+        uiState.expandedDomains.delete(domainKey);
+        renderSidebar();
+      } else {
+        uiState.expandedDomains.add(domainKey);
+        uiState.domainsExpanded = true;
+        navigateTo(sectionIdForDomain(domainKey));
+      }
+      return;
+    }
+
     if (action === "select-domain") {
       const domainKey = button.dataset.domainKey;
       if (!domainKey) return;
       uiState.domainsExpanded = true;
+      uiState.expandedDomains.add(domainKey);
       navigateTo(sectionIdForDomain(domainKey));
       return;
     }
@@ -824,6 +861,7 @@
 
       delete appState.domains[domainKey];
       delete uiState.fixedRows[domainKey];
+      uiState.expandedDomains.delete(domainKey);
 
       if (uiState.activeTarget === sectionIdForDomain(domainKey)) {
         uiState.activeTarget = "section-general";
@@ -866,6 +904,7 @@
     appState = await globalThis.ChaosFillStorage.resetState();
     initFixedRowsFromState();
     uiState.domainsExpanded = false;
+    uiState.expandedDomains = new Set();
     uiState.activeTarget = "section-general";
     await notifyBackgroundSettingsChanged();
     render();
@@ -891,6 +930,7 @@
     appState = await globalThis.ChaosFillStorage.importState(text);
     initFixedRowsFromState();
     uiState.domainsExpanded = false;
+    uiState.expandedDomains = new Set();
     uiState.activeTarget = "section-general";
     await notifyBackgroundSettingsChanged();
     render();
@@ -929,6 +969,7 @@
     const activeDomain = await getCurrentTabDomainKey();
     if (activeDomain && appState.domains?.[activeDomain]) {
       uiState.domainsExpanded = true;
+      uiState.expandedDomains.add(activeDomain);
     }
 
     $("sidebar").addEventListener("click", handleSidebarClick);
