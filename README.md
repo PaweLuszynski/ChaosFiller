@@ -99,6 +99,7 @@ Safari Web Extension (WebExtensions-style) packaged in a minimal macOS host app,
 2. Use `Develop` menu to inspect page content scripts.
 3. Use extension inspector/background inspector from Develop menu for extension logs.
 4. In Xcode, monitor host app logs and extension build/runtime errors.
+5. In DEBUG builds, opening Safari extension settings does not auto-terminate the host app, so Xcode stays attached and host logs remain visible.
 
 ## Build Verification (done)
 

@@ -22,34 +22,103 @@
     "datetime-local",
     "randomized-list"
   ];
-  const MATCH_TARGETS = [
-    { value: "any", label: "Any selected attributes (bundle)" },
-    { value: "id", label: "id" },
-    { value: "name", label: "name" },
-    { value: "placeholder", label: "placeholder" },
-    { value: "label", label: "label text" },
-    { value: "ariaLabel", label: "aria-label" },
-    { value: "ariaLabelledby", label: "aria-labelledby text" },
-    { value: "class", label: "class" },
-    { value: "type", label: "type" }
-  ];
-  const RULE_FIELD_HELP = {
-    title: "Optional display name for this rule.",
-    generator: "What fake value to generate. Example: choose vatId for tax identifiers.",
-    matchKind: "How to compare your pattern. contains = partial text, equals = exact text, regex = pattern like ^(vendor|company)\\.salesTaxId$.",
-    matchTarget: "Which field attribute to inspect. Example: choose id to match only the field id.",
-    matchPattern: "Pattern to match against the selected target. Multiple options: option a; option b. Optional per-option target: id:value; name:value; placeholder:value.",
-    outputMask: "Optional output format. Tokens: # digit, A uppercase letter, a lowercase letter, X letter/digit, ? any source character. Example: DE#########.",
-    domainRegex: "Optional domain filter for this rule. Leave empty to apply on all domains.",
-    enabled: "Turn this rule on or off without deleting it.",
-    randomizedList: "Used only when generator is randomized-list. Enter values separated by comma or new line."
+
+  const uiState = {
+    domainsExpanded: false,
+    activeTarget: "section-general",
+    fixedRows: {},
+    toastTimer: null
   };
 
-  let settingsState = null;
-  let toastTimer = null;
+  let appState = null;
 
   function $(id) {
     return document.getElementById(id);
+  }
+
+  function escapeHtml(value) {
+    return String(value ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  function safeId(value) {
+    return String(value || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]/g, "-")
+      .replace(/-+/g, "-")
+      .replace(/^-|-$/g, "");
+  }
+
+  function sectionIdForDomain(domainKey) {
+    return `section-domain-${safeId(domainKey)}`;
+  }
+
+  function sectionIdForDomainPart(domainKey, part) {
+    return `${sectionIdForDomain(domainKey)}-${part}`;
+  }
+
+  function sectionIdForRule(scope, domainKey, ruleId) {
+    if (scope === "global") {
+      return `section-global-rule-${safeId(ruleId)}`;
+    }
+    return `${sectionIdForDomain(domainKey)}-rule-${safeId(ruleId)}`;
+  }
+
+  function deepClone(value) {
+    return JSON.parse(JSON.stringify(value));
+  }
+
+  function getDomainsSorted() {
+    return Object.values(appState.domains || {}).sort((a, b) => a.label.localeCompare(b.label));
+  }
+
+  function getDomain(domainKey) {
+    return appState.domains?.[domainKey] || null;
+  }
+
+  function ensureFixedRows(domainKey) {
+    if (uiState.fixedRows[domainKey]) {
+      return uiState.fixedRows[domainKey];
+    }
+
+    const domain = getDomain(domainKey);
+    const rows = [];
+    const fixedValues = domain?.fixedValues || {};
+
+    for (const [key, value] of Object.entries(fixedValues)) {
+      rows.push({ id: `${Date.now()}-${Math.random()}`, key: String(key), value: String(value) });
+    }
+
+    if (rows.length === 0) {
+      rows.push({ id: `${Date.now()}-${Math.random()}`, key: "", value: "" });
+    }
+
+    uiState.fixedRows[domainKey] = rows;
+    return rows;
+  }
+
+  function syncFixedRowsToState() {
+    for (const domainKey of Object.keys(appState.domains || {})) {
+      const rows = ensureFixedRows(domainKey);
+      const fixedValues = {};
+      for (const row of rows) {
+        const key = String(row.key || "").trim();
+        if (!key) continue;
+        fixedValues[key] = String(row.value ?? "");
+      }
+      appState.domains[domainKey].fixedValues = fixedValues;
+      appState.domains[domainKey].updatedAt = Date.now();
+    }
+  }
+
+  function initFixedRowsFromState() {
+    uiState.fixedRows = {};
+    for (const domainKey of Object.keys(appState.domains || {})) {
+      ensureFixedRows(domainKey);
+    }
   }
 
   function showStatus(message, isError = false) {
@@ -59,18 +128,13 @@
 
     toastMessage.textContent = message;
     toast.hidden = false;
-    toast.classList.remove("toast-success", "toast-error", "is-visible");
-    toast.classList.add(isError ? "toast-error" : "toast-success");
-
-    // Re-trigger transition on repeated updates.
-    // eslint-disable-next-line no-unused-expressions
-    toast.offsetWidth;
     toast.classList.add("is-visible");
+    toast.classList.toggle("toast-error", isError);
 
-    if (toastTimer) {
-      clearTimeout(toastTimer);
+    if (uiState.toastTimer) {
+      clearTimeout(uiState.toastTimer);
     }
-    toastTimer = setTimeout(() => {
+    uiState.toastTimer = setTimeout(() => {
       hideStatus();
     }, 5000);
   }
@@ -79,61 +143,29 @@
     const toast = $("toast");
     if (!toast) return;
 
-    if (toastTimer) {
-      clearTimeout(toastTimer);
-      toastTimer = null;
+    if (uiState.toastTimer) {
+      clearTimeout(uiState.toastTimer);
+      uiState.toastTimer = null;
     }
 
     toast.classList.remove("is-visible");
-    setTimeout(() => {
-      toast.hidden = true;
-    }, 170);
+    toast.hidden = true;
   }
 
-  function joinLines(values) {
-    return (Array.isArray(values) ? values : []).join("\n");
-  }
+  function setByPath(target, path, value) {
+    const parts = String(path || "").split(".").filter(Boolean);
+    if (parts.length === 0) return;
 
-  function readLines(value) {
-    return String(value || "")
-      .split(/\n+/)
-      .map((line) => line.trim())
-      .filter(Boolean);
-  }
-
-  function readTokenList(value) {
-    return String(value || "")
-      .split(/[\n,]/)
-      .map((part) => part.trim())
-      .filter(Boolean);
-  }
-
-  function validateRegexList(values, label) {
-    for (const raw of values) {
-      if (!raw) continue;
-      try {
-        // eslint-disable-next-line no-new
-        new RegExp(raw, "i");
-      } catch (error) {
-        throw new Error(`Invalid ${label} regex: ${raw}`);
+    let current = target;
+    for (let index = 0; index < parts.length - 1; index += 1) {
+      const key = parts[index];
+      if (!current[key] || typeof current[key] !== "object") {
+        current[key] = {};
       }
+      current = current[key];
     }
-  }
 
-  function splitPatternOptions(value) {
-    return String(value || "")
-      .split(";")
-      .map((item) => item.trim())
-      .filter(Boolean);
-  }
-
-  function extractPatternOptionBody(value) {
-    const raw = String(value || "").trim();
-    const prefixedMatch = raw.match(/^([a-zA-Z][a-zA-Z0-9_-]*)\s*[:=]\s*(.+)$/);
-    if (!prefixedMatch) {
-      return raw;
-    }
-    return String(prefixedMatch[2] || "").trim();
+    current[parts[parts.length - 1]] = value;
   }
 
   function createRuleTemplate() {
@@ -144,291 +176,704 @@
       match: { kind: "contains", pattern: "", target: "any" },
       outputMask: "",
       domainRegex: "",
+      resolvedKey: "",
+      overrideValue: "",
       enabled: true
     };
   }
 
-  function helperIcon(text) {
-    const escaped = escapeHtml(text);
-    return `<span class="help-icon" tabindex="0" role="button" aria-label="${escaped}" data-help="${escaped}">i</span>`;
+  function ruleFieldValue(rule, field) {
+    switch (field) {
+      case "title":
+        return rule.title;
+      case "enabled":
+        return rule.enabled !== false;
+      case "generator.type":
+        return rule.generator?.type || "lorem";
+      case "generator.items":
+        return Array.isArray(rule.generator?.items) ? rule.generator.items.join("\n") : "";
+      case "match.kind":
+        return rule.match?.kind || "contains";
+      case "match.pattern":
+        return rule.match?.pattern || "";
+      case "match.target":
+        return rule.match?.target || "any";
+      case "outputMask":
+        return rule.outputMask || "";
+      case "domainRegex":
+        return rule.domainRegex || "";
+      case "resolvedKey":
+        return rule.resolvedKey || "";
+      case "overrideValue":
+        return rule.overrideValue || "";
+      default:
+        return "";
+    }
   }
 
-  function renderRules() {
-    const root = $("rulesList");
-    root.innerHTML = "";
+  function setRuleField(rule, field, rawValue, isCheckbox = false) {
+    const value = isCheckbox ? rawValue === true : rawValue;
 
-    settingsState.rules.forEach((rule, index) => {
-      const card = document.createElement("article");
-      card.className = "rule-card";
-
-      const titleRow = document.createElement("div");
-      titleRow.className = "rule-grid";
-      titleRow.innerHTML = `
-        <label>
-          <span class="label-title">Rule title ${helperIcon(RULE_FIELD_HELP.title)}</span>
-          <input type="text" data-role="title" value="${escapeHtml(rule.title || "")}" />
-        </label>
-        <label>
-          <span class="label-title">Generator ${helperIcon(RULE_FIELD_HELP.generator)}</span>
-          <select data-role="generator"></select>
-        </label>
-        <label>
-          <span class="label-title">Match type ${helperIcon(RULE_FIELD_HELP.matchKind)}</span>
-          <select data-role="match-kind">
-            <option value="contains">contains</option>
-            <option value="equals">equals</option>
-            <option value="regex">regex</option>
-          </select>
-        </label>
-        <label>
-          <span class="label-title">Match target ${helperIcon(RULE_FIELD_HELP.matchTarget)}</span>
-          <select data-role="match-target"></select>
-        </label>
-        <label>
-          <span class="label-title">Match pattern ${helperIcon(RULE_FIELD_HELP.matchPattern)}</span>
-          <input type="text" data-role="match-pattern" value="${escapeHtml(rule.match?.pattern || "")}" />
-        </label>
-        <label>
-          <span class="label-title">Output mask (optional) ${helperIcon(RULE_FIELD_HELP.outputMask)}</span>
-          <input type="text" data-role="output-mask" value="${escapeHtml(rule.outputMask || "")}" />
-        </label>
-        <label>
-          <span class="label-title">Domain regex (optional) ${helperIcon(RULE_FIELD_HELP.domainRegex)}</span>
-          <input type="text" data-role="domain-regex" value="${escapeHtml(rule.domainRegex || "")}" />
-        </label>
-        <label class="inline-option">
-          <input type="checkbox" data-role="enabled" ${rule.enabled !== false ? "checked" : ""} />
-          <span class="label-title">Enabled ${helperIcon(RULE_FIELD_HELP.enabled)}</span>
-        </label>
-      `;
-
-      const generatorSelect = titleRow.querySelector('[data-role="generator"]');
-      GENERATOR_TYPES.forEach((type) => {
-        const option = document.createElement("option");
-        option.value = type;
-        option.textContent = type;
-        generatorSelect.appendChild(option);
-      });
-      generatorSelect.value = rule.generator?.type || "lorem";
-
-      const matchKind = titleRow.querySelector('[data-role="match-kind"]');
-      matchKind.value = rule.match?.kind || "contains";
-      const matchTarget = titleRow.querySelector('[data-role="match-target"]');
-      MATCH_TARGETS.forEach((target) => {
-        const option = document.createElement("option");
-        option.value = target.value;
-        option.textContent = target.label;
-        matchTarget.appendChild(option);
-      });
-      matchTarget.value = rule.match?.target || "any";
-
-      const listLabel = document.createElement("label");
-      listLabel.innerHTML = `
-        <span class="label-title">Randomized list values (comma/newline separated) ${helperIcon(RULE_FIELD_HELP.randomizedList)}</span>
-        <textarea data-role="list-items" rows="3"></textarea>
-      `;
-      const listArea = listLabel.querySelector("textarea");
-      listArea.value = (rule.generator?.items || []).join("\n");
-      listLabel.style.display = (rule.generator?.type === "randomized-list") ? "grid" : "none";
-
-      const actions = document.createElement("div");
-      actions.className = "rule-actions";
-      actions.innerHTML = `
-        <button data-role="up">Move up</button>
-        <button data-role="down">Move down</button>
-        <button data-role="delete">Delete</button>
-      `;
-
-      card.appendChild(titleRow);
-      card.appendChild(listLabel);
-      card.appendChild(actions);
-      root.appendChild(card);
-
-      titleRow.querySelector('[data-role="title"]').addEventListener("input", (event) => {
-        rule.title = event.target.value;
-      });
-
-      generatorSelect.addEventListener("change", (event) => {
-        rule.generator.type = event.target.value;
+    switch (field) {
+      case "title":
+        rule.title = String(value || "");
+        return;
+      case "enabled":
+        rule.enabled = Boolean(value);
+        return;
+      case "generator.type":
+        rule.generator = rule.generator || { type: "lorem", items: [] };
+        rule.generator.type = String(value || "lorem");
         if (rule.generator.type !== "randomized-list") {
           rule.generator.items = [];
         }
-        renderRules();
-      });
-
-      matchKind.addEventListener("change", (event) => {
-        rule.match.kind = event.target.value;
-      });
-
-      matchTarget.addEventListener("change", (event) => {
-        rule.match.target = event.target.value;
-      });
-
-      titleRow.querySelector('[data-role="match-pattern"]').addEventListener("input", (event) => {
-        rule.match.pattern = event.target.value;
-      });
-
-      titleRow.querySelector('[data-role="output-mask"]').addEventListener("input", (event) => {
-        rule.outputMask = event.target.value;
-      });
-
-      titleRow.querySelector('[data-role="domain-regex"]').addEventListener("input", (event) => {
-        rule.domainRegex = event.target.value;
-      });
-
-      titleRow.querySelector('[data-role="enabled"]').addEventListener("change", (event) => {
-        rule.enabled = event.target.checked;
-      });
-
-      listArea.addEventListener("input", (event) => {
-        rule.generator.items = String(event.target.value)
+        return;
+      case "generator.items":
+        rule.generator = rule.generator || { type: "lorem", items: [] };
+        rule.generator.items = String(value || "")
           .split(/[\n,]/)
           .map((item) => item.trim())
           .filter(Boolean);
-      });
-
-      actions.querySelector('[data-role="up"]').addEventListener("click", () => {
-        if (index === 0) return;
-        const [item] = settingsState.rules.splice(index, 1);
-        settingsState.rules.splice(index - 1, 0, item);
-        renderRules();
-      });
-
-      actions.querySelector('[data-role="down"]').addEventListener("click", () => {
-        if (index >= settingsState.rules.length - 1) return;
-        const [item] = settingsState.rules.splice(index, 1);
-        settingsState.rules.splice(index + 1, 0, item);
-        renderRules();
-      });
-
-      actions.querySelector('[data-role="delete"]').addEventListener("click", () => {
-        settingsState.rules.splice(index, 1);
-        renderRules();
-      });
-    });
+        return;
+      case "match.kind":
+        rule.match = rule.match || { kind: "contains", pattern: "", target: "any" };
+        rule.match.kind = String(value || "contains");
+        return;
+      case "match.pattern":
+        rule.match = rule.match || { kind: "contains", pattern: "", target: "any" };
+        rule.match.pattern = String(value || "");
+        return;
+      case "match.target":
+        rule.match = rule.match || { kind: "contains", pattern: "", target: "any" };
+        rule.match.target = String(value || "any");
+        return;
+      case "outputMask":
+        rule.outputMask = String(value || "");
+        return;
+      case "domainRegex":
+        rule.domainRegex = String(value || "");
+        return;
+      case "resolvedKey":
+        rule.resolvedKey = String(value || "");
+        return;
+      case "overrideValue":
+        rule.overrideValue = String(value || "");
+        return;
+      default:
+        break;
+    }
   }
 
-  function escapeHtml(value) {
-    return String(value)
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;");
+  function renderRuleCard(rule, options = {}) {
+    const scope = options.scope || "global";
+    const domainKey = options.domainKey || "";
+    const sectionId = options.sectionId || "";
+
+    const generatorType = ruleFieldValue(rule, "generator.type");
+    const randomizedItems = ruleFieldValue(rule, "generator.items");
+
+    return `
+      <article class="rule-card section-anchor" id="${sectionId}">
+        <div class="field-grid">
+          <label>Rule title
+            <input data-kind="rule-field" data-scope="${scope}" data-domain="${escapeHtml(domainKey)}" data-rule-id="${escapeHtml(rule.id)}" data-field="title" value="${escapeHtml(ruleFieldValue(rule, "title"))}" />
+          </label>
+          <label>Generator
+            <select data-kind="rule-field" data-scope="${scope}" data-domain="${escapeHtml(domainKey)}" data-rule-id="${escapeHtml(rule.id)}" data-field="generator.type">
+              ${GENERATOR_TYPES.map((type) => `<option value="${type}" ${generatorType === type ? "selected" : ""}>${type}</option>`).join("")}
+            </select>
+          </label>
+          <label>Match type
+            <select data-kind="rule-field" data-scope="${scope}" data-domain="${escapeHtml(domainKey)}" data-rule-id="${escapeHtml(rule.id)}" data-field="match.kind">
+              <option value="contains" ${ruleFieldValue(rule, "match.kind") === "contains" ? "selected" : ""}>contains</option>
+              <option value="equals" ${ruleFieldValue(rule, "match.kind") === "equals" ? "selected" : ""}>equals</option>
+              <option value="regex" ${ruleFieldValue(rule, "match.kind") === "regex" ? "selected" : ""}>regex</option>
+            </select>
+          </label>
+          <label>Match target
+            <select data-kind="rule-field" data-scope="${scope}" data-domain="${escapeHtml(domainKey)}" data-rule-id="${escapeHtml(rule.id)}" data-field="match.target">
+              ${globalThis.ChaosFillStorage.RULE_MATCH_TARGETS.map((target) => `<option value="${target}" ${ruleFieldValue(rule, "match.target") === target ? "selected" : ""}>${target}</option>`).join("")}
+            </select>
+          </label>
+          <label>Match pattern
+            <input data-kind="rule-field" data-scope="${scope}" data-domain="${escapeHtml(domainKey)}" data-rule-id="${escapeHtml(rule.id)}" data-field="match.pattern" value="${escapeHtml(ruleFieldValue(rule, "match.pattern"))}" />
+          </label>
+          <label>Resolved key
+            <input data-kind="rule-field" data-scope="${scope}" data-domain="${escapeHtml(domainKey)}" data-rule-id="${escapeHtml(rule.id)}" data-field="resolvedKey" value="${escapeHtml(ruleFieldValue(rule, "resolvedKey"))}" />
+          </label>
+          <label>Override value (optional)
+            <input data-kind="rule-field" data-scope="${scope}" data-domain="${escapeHtml(domainKey)}" data-rule-id="${escapeHtml(rule.id)}" data-field="overrideValue" value="${escapeHtml(ruleFieldValue(rule, "overrideValue"))}" />
+          </label>
+          <label>Output mask
+            <input data-kind="rule-field" data-scope="${scope}" data-domain="${escapeHtml(domainKey)}" data-rule-id="${escapeHtml(rule.id)}" data-field="outputMask" value="${escapeHtml(ruleFieldValue(rule, "outputMask"))}" />
+          </label>
+          <label>Domain regex (optional)
+            <input data-kind="rule-field" data-scope="${scope}" data-domain="${escapeHtml(domainKey)}" data-rule-id="${escapeHtml(rule.id)}" data-field="domainRegex" value="${escapeHtml(ruleFieldValue(rule, "domainRegex"))}" />
+          </label>
+          <label class="inline">
+            <input type="checkbox" data-kind="rule-field" data-scope="${scope}" data-domain="${escapeHtml(domainKey)}" data-rule-id="${escapeHtml(rule.id)}" data-field="enabled" ${ruleFieldValue(rule, "enabled") ? "checked" : ""} />
+            Enabled
+          </label>
+        </div>
+
+        ${generatorType === "randomized-list" ? `
+          <label>Randomized list values (comma/newline)
+            <textarea data-kind="rule-field" data-scope="${scope}" data-domain="${escapeHtml(domainKey)}" data-rule-id="${escapeHtml(rule.id)}" data-field="generator.items">${escapeHtml(randomizedItems)}</textarea>
+          </label>
+        ` : ""}
+
+        <div class="rule-actions">
+          <button data-action="rule-up" data-scope="${scope}" data-domain="${escapeHtml(domainKey)}" data-rule-id="${escapeHtml(rule.id)}">Move up</button>
+          <button data-action="rule-down" data-scope="${scope}" data-domain="${escapeHtml(domainKey)}" data-rule-id="${escapeHtml(rule.id)}">Move down</button>
+          <button data-action="rule-delete" data-scope="${scope}" data-domain="${escapeHtml(domainKey)}" data-rule-id="${escapeHtml(rule.id)}">Delete</button>
+        </div>
+      </article>
+    `;
   }
 
-  function bindStaticFieldsFromState() {
-    const settings = settingsState;
+  function renderSidebar() {
+    const sidebar = $("sidebar");
+    const domains = getDomainsSorted();
+    const domainsOpen = uiState.domainsExpanded;
 
-    $("passwordModeFixed").checked = settings.password.mode === "fixed";
-    $("passwordModeRandom").checked = settings.password.mode === "random";
-    $("passwordFixedValue").value = settings.password.fixedValue || "";
-    $("passwordRandomLength").value = settings.password.randomLength;
+    let html = `
+      <p class="sidebar-title">Navigation</p>
+      <button class="nav-item ${uiState.activeTarget === "section-general" ? "is-active" : ""}" data-nav-target="section-general">General Settings</button>
+      <button class="nav-item ${uiState.activeTarget === "section-global-rules" ? "is-active" : ""}" data-nav-target="section-global-rules">Global Rules</button>
+      <button class="nav-item ${uiState.activeTarget.startsWith("section-domain-") ? "is-active" : ""}" data-action="toggle-domains">Domains</button>
+    `;
 
-    $("ignoreMatchTokens").value = joinLines(settings.general.ignoreMatchTokens);
-    $("ignoreHiddenInvisible").checked = settings.general.ignoreHiddenInvisible !== false;
-    $("ignoreExistingContent").checked = settings.general.ignoreExistingContent === true;
-    $("confirmationTokens").value = joinLines(settings.general.confirmationTokens);
-    $("agreeTokens").value = joinLines(settings.general.agreeTokens);
+    if (domainsOpen) {
+      html += `<div class="domain-children">`;
+      if (domains.length === 0) {
+        html += `<div class="muted">No domains yet</div>`;
+      } else {
+        for (const domain of domains) {
+          const domainSectionId = sectionIdForDomain(domain.id);
+          html += `
+            <button class="nav-child ${uiState.activeTarget === domainSectionId ? "is-active" : ""}" data-action="select-domain" data-domain-key="${escapeHtml(domain.id)}">
+              ${escapeHtml(domain.label)}
+            </button>
+          `;
+        }
+      }
+      html += `</div>`;
+    }
 
-    $("attrId").checked = settings.general.useAttributes.id !== false;
-    $("attrName").checked = settings.general.useAttributes.name !== false;
-    $("attrLabel").checked = settings.general.useAttributes.label !== false;
-    $("attrAriaLabel").checked = settings.general.useAttributes.ariaLabel !== false;
-    $("attrAriaLabelledby").checked = settings.general.useAttributes.ariaLabelledby !== false;
-    $("attrPlaceholder").checked = settings.general.useAttributes.placeholder !== false;
-    $("attrClass").checked = settings.general.useAttributes.class === true;
-    $("attrType").checked = settings.general.useAttributes.type !== false;
-
-    $("triggerEvents").checked = settings.general.triggerEvents !== false;
-    $("contextMenuEnabled").checked = settings.general.contextMenuEnabled !== false;
-    $("ignoredDomains").value = joinLines(settings.general.ignoredDomains);
-    $("enableSensitiveDenylist").checked = settings.general.enableSensitiveDenylist !== false;
-
-    $("maxLength").value = settings.fallback.maxLength;
-    $("loremMaxWords").value = settings.fallback.loremMaxWords;
-    $("emailDomain").value = settings.fallback.emailDomain || "example.com";
-    $("phoneFormat").value = settings.fallback.phoneFormat || "+49###########";
-    $("dateStart").value = settings.fallback.dateStart;
-    $("dateEnd").value = settings.fallback.dateEnd;
-    $("checkboxDefault").value = settings.fallback.checkboxDefault;
-    $("radioStrategy").value = settings.fallback.radioStrategy;
+    sidebar.innerHTML = html;
   }
 
-  function syncStateFromStaticFields() {
-    settingsState.password.mode = $("passwordModeRandom").checked ? "random" : "fixed";
-    settingsState.password.fixedValue = $("passwordFixedValue").value;
-    settingsState.password.randomLength = Number($("passwordRandomLength").value || 16);
+  function renderGeneralPanel() {
+    const settings = appState.settings || {};
 
-    settingsState.general.ignoreMatchTokens = readTokenList($("ignoreMatchTokens").value);
-    settingsState.general.ignoreHiddenInvisible = $("ignoreHiddenInvisible").checked;
-    settingsState.general.ignoreExistingContent = $("ignoreExistingContent").checked;
-    settingsState.general.confirmationTokens = readTokenList($("confirmationTokens").value);
-    settingsState.general.agreeTokens = readTokenList($("agreeTokens").value);
+    return `
+      <section class="panel section-anchor" id="section-general">
+        <h2>General Settings</h2>
+        <div class="field-grid">
+          <label>Global data mode
+            <select data-kind="setting" data-path="dataMode">
+              <option value="random" ${settings.dataMode === "random" ? "selected" : ""}>random</option>
+              <option value="session" ${settings.dataMode === "session" ? "selected" : ""}>session</option>
+              <option value="persona" ${settings.dataMode === "persona" ? "selected" : ""}>persona</option>
+            </select>
+          </label>
+          <label class="inline">
+            <input type="checkbox" data-kind="setting" data-path="personaFallbackToGenerated" ${settings.personaFallbackToGenerated !== false ? "checked" : ""} />
+            Persona mode fallback to generated values
+          </label>
+          <label class="inline">
+            <input type="checkbox" data-kind="setting" data-path="triggerEvents" ${settings.triggerEvents !== false ? "checked" : ""} />
+            Trigger input/change events
+          </label>
+          <label class="inline">
+            <input type="checkbox" data-kind="setting" data-path="contextMenuEnabled" ${settings.contextMenuEnabled !== false ? "checked" : ""} />
+            Enable context menu
+          </label>
+          <label class="inline">
+            <input type="checkbox" data-kind="setting" data-path="sensitiveDenylistEnabled" ${settings.sensitiveDenylistEnabled !== false ? "checked" : ""} />
+            Sensitive denylist enabled
+          </label>
+          <label class="inline">
+            <input type="checkbox" data-kind="setting" data-path="ignoreHiddenInvisible" ${settings.ignoreHiddenInvisible !== false ? "checked" : ""} />
+            Ignore hidden/invisible
+          </label>
+          <label class="inline">
+            <input type="checkbox" data-kind="setting" data-path="ignoreExistingContent" ${settings.ignoreExistingContent === true ? "checked" : ""} />
+            Ignore already filled fields
+          </label>
+          <label>Password mode
+            <select data-kind="setting" data-path="password.mode">
+              <option value="fixed" ${settings.password?.mode === "fixed" ? "selected" : ""}>fixed</option>
+              <option value="random" ${settings.password?.mode === "random" ? "selected" : ""}>random</option>
+            </select>
+          </label>
+          <label>Fixed password value
+            <input data-kind="setting" data-path="password.fixedValue" value="${escapeHtml(settings.password?.fixedValue || "")}" />
+          </label>
+          <label>Random password length
+            <input type="number" min="4" max="128" data-kind="setting" data-path="password.randomLength" value="${escapeHtml(settings.password?.randomLength || 16)}" />
+          </label>
+          <label>Email domain
+            <input data-kind="setting" data-path="fallback.emailDomain" value="${escapeHtml(settings.fallback?.emailDomain || "example.com")}" />
+          </label>
+          <label>Max fallback length
+            <input type="number" min="1" max="1024" data-kind="setting" data-path="fallback.maxLength" value="${escapeHtml(settings.fallback?.maxLength || 20)}" />
+          </label>
+          <label>Lorem max words
+            <input type="number" min="1" max="100" data-kind="setting" data-path="fallback.loremMaxWords" value="${escapeHtml(settings.fallback?.loremMaxWords || 6)}" />
+          </label>
+        </div>
 
-    settingsState.general.useAttributes.id = $("attrId").checked;
-    settingsState.general.useAttributes.name = $("attrName").checked;
-    settingsState.general.useAttributes.label = $("attrLabel").checked;
-    settingsState.general.useAttributes.ariaLabel = $("attrAriaLabel").checked;
-    settingsState.general.useAttributes.ariaLabelledby = $("attrAriaLabelledby").checked;
-    settingsState.general.useAttributes.placeholder = $("attrPlaceholder").checked;
-    settingsState.general.useAttributes.class = $("attrClass").checked;
-    settingsState.general.useAttributes.type = $("attrType").checked;
+        <label>Ignored domains (regex per line)
+          <textarea data-kind="setting" data-path="ignoredDomains">${escapeHtml((settings.ignoredDomains || []).join("\n"))}</textarea>
+        </label>
+      </section>
+    `;
+  }
 
-    settingsState.general.triggerEvents = $("triggerEvents").checked;
-    settingsState.general.contextMenuEnabled = $("contextMenuEnabled").checked;
-    settingsState.general.ignoredDomains = readLines($("ignoredDomains").value);
-    settingsState.general.enableSensitiveDenylist = $("enableSensitiveDenylist").checked;
+  function renderGlobalRulesPanel() {
+    const rules = Array.isArray(appState.globalRules) ? appState.globalRules : [];
 
-    settingsState.fallback.maxLength = Number($("maxLength").value || 20);
-    settingsState.fallback.loremMaxWords = Number($("loremMaxWords").value || 6);
-    settingsState.fallback.emailDomain = $("emailDomain").value;
-    settingsState.fallback.phoneFormat = $("phoneFormat").value;
-    settingsState.fallback.dateStart = $("dateStart").value;
-    settingsState.fallback.dateEnd = $("dateEnd").value;
-    settingsState.fallback.checkboxDefault = $("checkboxDefault").value;
-    settingsState.fallback.radioStrategy = $("radioStrategy").value;
+    return `
+      <section class="panel section-anchor" id="section-global-rules">
+        <h2>Global Rules</h2>
+        <p class="muted">Global rules are fallback rules used when no domain-specific rule matches.</p>
+        <button data-action="add-global-rule">Add global rule</button>
+        <div class="section-stack">
+          ${rules.map((rule) => renderRuleCard(rule, {
+            scope: "global",
+            sectionId: sectionIdForRule("global", "", rule.id)
+          })).join("")}
+        </div>
+      </section>
+    `;
+  }
+
+  function renderDomainPanel(domain) {
+    const overviewId = sectionIdForDomainPart(domain.id, "overview");
+    const rulesId = sectionIdForDomainPart(domain.id, "rules");
+    const fixedId = sectionIdForDomainPart(domain.id, "fixed");
+    const domainSection = sectionIdForDomain(domain.id);
+
+    const rules = Array.isArray(domain.rules) ? domain.rules : [];
+    const fixedRows = ensureFixedRows(domain.id);
+
+    return `
+      <section class="panel section-anchor" id="${domainSection}">
+        <h2>${escapeHtml(domain.label)}</h2>
+
+        <section class="section-anchor" id="${overviewId}">
+          <h3>Domain Overview</h3>
+          <div class="field-grid">
+            <label class="inline">
+              <input type="checkbox" data-kind="domain-field" data-domain="${escapeHtml(domain.id)}" data-field="enabled" ${domain.enabled !== false ? "checked" : ""} />
+              Enabled
+            </label>
+            <label>Display label
+              <input data-kind="domain-field" data-domain="${escapeHtml(domain.id)}" data-field="label" value="${escapeHtml(domain.label)}" />
+            </label>
+            <label>Normalized domain
+              <input value="${escapeHtml(domain.id)}" readonly />
+            </label>
+            <label>Domain data mode
+              <select data-kind="domain-field" data-domain="${escapeHtml(domain.id)}" data-field="dataMode">
+                <option value="inherit" ${domain.dataMode === "inherit" ? "selected" : ""}>inherit global</option>
+                <option value="random" ${domain.dataMode === "random" ? "selected" : ""}>random</option>
+                <option value="session" ${domain.dataMode === "session" ? "selected" : ""}>session</option>
+                <option value="persona" ${domain.dataMode === "persona" ? "selected" : ""}>persona</option>
+              </select>
+            </label>
+            <label>Created at
+              <input value="${escapeHtml(new Date(domain.createdAt).toLocaleString())}" readonly />
+            </label>
+            <label>Updated at
+              <input value="${escapeHtml(new Date(domain.updatedAt).toLocaleString())}" readonly />
+            </label>
+          </div>
+          <div class="rule-actions">
+            <button data-action="remove-domain" data-domain="${escapeHtml(domain.id)}">Remove Domain</button>
+          </div>
+          <label>Notes
+            <textarea data-kind="domain-field" data-domain="${escapeHtml(domain.id)}" data-field="notes">${escapeHtml(domain.notes || "")}</textarea>
+          </label>
+        </section>
+
+        <section class="section-anchor" id="${rulesId}">
+          <h3>Domain Rules</h3>
+          <button data-action="add-domain-rule" data-domain="${escapeHtml(domain.id)}">Add domain rule</button>
+          <div class="section-stack">
+            ${rules.map((rule) => renderRuleCard(rule, {
+              scope: "domain",
+              domainKey: domain.id,
+              sectionId: sectionIdForRule("domain", domain.id, rule.id)
+            })).join("")}
+          </div>
+        </section>
+
+        <section class="section-anchor" id="${fixedId}">
+          <h3>Fixed Values</h3>
+          <p class="muted">Used by domain-specific persona/session/random resolution by resolved key.</p>
+          <button data-action="add-fixed-row" data-domain="${escapeHtml(domain.id)}">Add fixed value row</button>
+          <div class="section-stack">
+            ${fixedRows.map((row) => `
+              <div class="fixed-row">
+                <input placeholder="key (e.g. email)" data-kind="fixed-key" data-domain="${escapeHtml(domain.id)}" data-row-id="${escapeHtml(row.id)}" value="${escapeHtml(row.key)}" />
+                <input placeholder="value" data-kind="fixed-value" data-domain="${escapeHtml(domain.id)}" data-row-id="${escapeHtml(row.id)}" value="${escapeHtml(row.value)}" />
+                <button data-action="remove-fixed-row" data-domain="${escapeHtml(domain.id)}" data-row-id="${escapeHtml(row.id)}">Remove</button>
+              </div>
+            `).join("")}
+          </div>
+        </section>
+      </section>
+    `;
+  }
+
+  function renderMainContent() {
+    let html = "";
+    if (uiState.activeTarget === "section-general") {
+      html = renderGeneralPanel();
+    } else if (uiState.activeTarget === "section-global-rules") {
+      html = renderGlobalRulesPanel();
+    } else if (uiState.activeTarget.startsWith("section-domain-")) {
+      const domainKey = findDomainForTarget(uiState.activeTarget);
+      const domain = getDomain(domainKey);
+      if (domain) {
+        html = renderDomainPanel(domain);
+      } else {
+        html = `
+          <section class="panel">
+            <h2>Domain not found</h2>
+            <p class="muted">This domain was removed or is no longer available.</p>
+          </section>
+        `;
+      }
+    } else {
+      html = renderGeneralPanel();
+      uiState.activeTarget = "section-general";
+    }
+
+    $("mainContent").innerHTML = html;
+  }
+
+  function render() {
+    renderSidebar();
+    renderMainContent();
+  }
+
+  function findDomainForTarget(targetId) {
+    if (!targetId) return "";
+    const domains = getDomainsSorted();
+    for (const domain of domains) {
+      const prefix = sectionIdForDomain(domain.id);
+      if (targetId === prefix || targetId.startsWith(`${prefix}-`)) {
+        return domain.id;
+      }
+    }
+    return "";
+  }
+
+  function navigateTo(targetId) {
+    uiState.activeTarget = targetId;
+    globalThis.location.hash = targetId;
+    renderMainContent();
+    renderSidebar();
+  }
+
+  function moveRule(list, ruleId, direction) {
+    const index = list.findIndex((rule) => rule.id === ruleId);
+    if (index < 0) return;
+
+    const nextIndex = direction === "up" ? index - 1 : index + 1;
+    if (nextIndex < 0 || nextIndex >= list.length) return;
+
+    const [item] = list.splice(index, 1);
+    list.splice(nextIndex, 0, item);
+  }
+
+  function getRuleList(scope, domainKey) {
+    if (scope === "global") {
+      appState.globalRules = Array.isArray(appState.globalRules) ? appState.globalRules : [];
+      return appState.globalRules;
+    }
+
+    const domain = getDomain(domainKey);
+    if (!domain) return [];
+    domain.rules = Array.isArray(domain.rules) ? domain.rules : [];
+    domain.updatedAt = Date.now();
+    return domain.rules;
+  }
+
+  function parseRegexOptions(pattern) {
+    return String(pattern || "")
+      .split(";")
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .map((entry) => {
+        const prefixed = entry.match(/^([a-zA-Z][a-zA-Z0-9_-]*)\s*[:=]\s*(.+)$/);
+        return prefixed ? prefixed[2].trim() : entry;
+      });
+  }
+
+  function validateRegexRules(rules, label) {
+    for (const rule of rules) {
+      if (!rule || rule.match?.kind !== "regex") continue;
+      const options = parseRegexOptions(rule.match?.pattern);
+      for (const pattern of options) {
+        if (!pattern) continue;
+        try {
+          // eslint-disable-next-line no-new
+          new RegExp(pattern, "i");
+        } catch (_error) {
+          throw new Error(`Invalid regex in ${label}: ${rule.title || rule.id}`);
+        }
+      }
+
+      if (rule.domainRegex) {
+        try {
+          // eslint-disable-next-line no-new
+          new RegExp(rule.domainRegex, "i");
+        } catch (_error) {
+          throw new Error(`Invalid domain regex in ${label}: ${rule.title || rule.id}`);
+        }
+      }
+    }
+  }
+
+  function parseNumber(value, fallback) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : fallback;
+  }
+
+  function handleSidebarClick(event) {
+    const button = event.target.closest("button");
+    if (!button) return;
+
+    const action = button.dataset.action;
+    if (action === "toggle-domains") {
+      uiState.domainsExpanded = !uiState.domainsExpanded;
+      renderSidebar();
+      return;
+    }
+
+    if (action === "select-domain") {
+      const domainKey = button.dataset.domainKey;
+      if (!domainKey) return;
+      uiState.domainsExpanded = true;
+      navigateTo(sectionIdForDomain(domainKey));
+      return;
+    }
+
+    const target = button.dataset.navTarget;
+    if (target) {
+      navigateTo(target);
+    }
+  }
+
+  function handleMainInput(event) {
+    const target = event.target;
+
+    if (target.dataset.kind === "setting") {
+      const path = target.dataset.path;
+      if (!path) return;
+
+      let value;
+      if (target.type === "checkbox") {
+        value = target.checked;
+      } else if (target.tagName === "TEXTAREA" && path === "ignoredDomains") {
+        value = String(target.value || "")
+          .split(/\n+/)
+          .map((line) => line.trim())
+          .filter(Boolean);
+      } else if (target.type === "number") {
+        value = parseNumber(target.value, 0);
+      } else {
+        value = target.value;
+      }
+
+      setByPath(appState.settings, path, value);
+      return;
+    }
+
+    if (target.dataset.kind === "domain-field") {
+      const domainKey = target.dataset.domain;
+      const field = target.dataset.field;
+      const domain = getDomain(domainKey);
+      if (!domain || !field) return;
+
+      domain[field] = target.type === "checkbox" ? target.checked : target.value;
+      domain.updatedAt = Date.now();
+
+      if (field === "label") {
+        render();
+      }
+      return;
+    }
+
+    if (target.dataset.kind === "rule-field") {
+      const scope = target.dataset.scope;
+      const domainKey = target.dataset.domain;
+      const ruleId = target.dataset.ruleId;
+      const field = target.dataset.field;
+      const list = getRuleList(scope, domainKey);
+      const rule = list.find((item) => item.id === ruleId);
+      if (!rule) return;
+
+      setRuleField(rule, field, target.type === "checkbox" ? target.checked : target.value, target.type === "checkbox");
+
+      if (field === "generator.type") {
+        renderMainContent();
+      }
+      return;
+    }
+
+    if (target.dataset.kind === "fixed-key" || target.dataset.kind === "fixed-value") {
+      const domainKey = target.dataset.domain;
+      const rowId = target.dataset.rowId;
+      const rows = ensureFixedRows(domainKey);
+      const row = rows.find((item) => item.id === rowId);
+      if (!row) return;
+
+      if (target.dataset.kind === "fixed-key") {
+        row.key = target.value;
+      } else {
+        row.value = target.value;
+      }
+
+      const domain = getDomain(domainKey);
+      if (domain) {
+        domain.updatedAt = Date.now();
+      }
+    }
+  }
+
+  function handleMainClick(event) {
+    const button = event.target.closest("button");
+    if (!button) return;
+
+    const action = button.dataset.action;
+
+    if (action === "add-global-rule") {
+      appState.globalRules.push(createRuleTemplate());
+      render();
+      return;
+    }
+
+    if (action === "add-domain-rule") {
+      const domainKey = button.dataset.domain;
+      const domain = getDomain(domainKey);
+      if (!domain) return;
+      domain.rules = Array.isArray(domain.rules) ? domain.rules : [];
+      domain.rules.push(createRuleTemplate());
+      domain.updatedAt = Date.now();
+      render();
+      return;
+    }
+
+    if (["rule-up", "rule-down", "rule-delete"].includes(action)) {
+      const scope = button.dataset.scope;
+      const domainKey = button.dataset.domain;
+      const ruleId = button.dataset.ruleId;
+      const list = getRuleList(scope, domainKey);
+
+      if (action === "rule-delete") {
+        const index = list.findIndex((rule) => rule.id === ruleId);
+        if (index >= 0) list.splice(index, 1);
+      } else {
+        moveRule(list, ruleId, action === "rule-up" ? "up" : "down");
+      }
+
+      render();
+      return;
+    }
+
+    if (action === "add-fixed-row") {
+      const domainKey = button.dataset.domain;
+      const rows = ensureFixedRows(domainKey);
+      rows.push({ id: `${Date.now()}-${Math.random()}`, key: "", value: "" });
+      const domain = getDomain(domainKey);
+      if (domain) domain.updatedAt = Date.now();
+      renderMainContent();
+      return;
+    }
+
+    if (action === "remove-fixed-row") {
+      const domainKey = button.dataset.domain;
+      const rowId = button.dataset.rowId;
+      const rows = ensureFixedRows(domainKey);
+      const index = rows.findIndex((row) => row.id === rowId);
+      if (index >= 0) {
+        rows.splice(index, 1);
+      }
+      if (rows.length === 0) {
+        rows.push({ id: `${Date.now()}-${Math.random()}`, key: "", value: "" });
+      }
+      const domain = getDomain(domainKey);
+      if (domain) domain.updatedAt = Date.now();
+      renderMainContent();
+      return;
+    }
+
+    if (action === "remove-domain") {
+      const domainKey = button.dataset.domain;
+      if (!domainKey) return;
+
+      const domain = getDomain(domainKey);
+      const label = domain?.label || domainKey;
+      const confirmed = globalThis.confirm(`Remove domain profile '${label}'?`);
+      if (!confirmed) return;
+
+      delete appState.domains[domainKey];
+      delete uiState.fixedRows[domainKey];
+
+      if (uiState.activeTarget === sectionIdForDomain(domainKey)) {
+        uiState.activeTarget = "section-general";
+      }
+
+      render();
+      showStatus("Domain removed. Save settings to persist.");
+      return;
+    }
   }
 
   async function notifyBackgroundSettingsChanged() {
     try {
       await api.runtime.sendMessage({ type: "CHAOS_FILL_SETTINGS_UPDATED" });
     } catch (_error) {
-      // Ignore if background is not available in this context.
+      // Ignore if background is unavailable.
     }
   }
 
-  async function saveSettings() {
-    syncStateFromStaticFields();
+  async function saveState() {
+    syncFixedRowsToState();
 
-    validateRegexList(settingsState.general.ignoredDomains, "ignored domain");
-
-    for (const rule of settingsState.rules) {
-      if (rule.match.kind === "regex" && rule.match.pattern) {
-        validateRegexList(
-          splitPatternOptions(rule.match.pattern).map((entry) => extractPatternOptionBody(entry)),
-          `rule '${rule.title || rule.id}'`
-        );
-      }
-      if (rule.domainRegex) {
-        validateRegexList([rule.domainRegex], `rule '${rule.title || rule.id}' domain`);
-      }
+    validateRegexRules(appState.globalRules, "global rules");
+    for (const domain of Object.values(appState.domains || {})) {
+      validateRegexRules(domain.rules || [], `domain '${domain.label}'`);
     }
 
-    settingsState = await globalThis.ChaosFillStorage.saveSettings(settingsState);
+    appState.settings.password.randomLength = Math.max(4, Math.min(128, parseNumber(appState.settings.password.randomLength, 16)));
+    appState.settings.fallback.maxLength = Math.max(1, Math.min(1024, parseNumber(appState.settings.fallback.maxLength, 20)));
+    appState.settings.fallback.loremMaxWords = Math.max(1, Math.min(100, parseNumber(appState.settings.fallback.loremMaxWords, 6)));
+
+    appState = await globalThis.ChaosFillStorage.saveState(appState);
+    initFixedRowsFromState();
     await notifyBackgroundSettingsChanged();
+    render();
     showStatus("Settings saved");
   }
 
-  async function resetSettings() {
-    settingsState = await globalThis.ChaosFillStorage.resetSettings();
-    bindStaticFieldsFromState();
-    renderRules();
+  async function resetState() {
+    appState = await globalThis.ChaosFillStorage.resetState();
+    initFixedRowsFromState();
+    uiState.domainsExpanded = false;
+    uiState.activeTarget = "section-general";
     await notifyBackgroundSettingsChanged();
-    showStatus("Defaults restored.");
+    render();
+    showStatus("Defaults restored");
   }
 
-  async function exportSettings() {
-    const json = await globalThis.ChaosFillStorage.exportSettings();
+  async function exportState() {
+    const json = await globalThis.ChaosFillStorage.exportState();
     const blob = new Blob([json], { type: "application/json" });
     const url = URL.createObjectURL(blob);
 
@@ -438,43 +883,62 @@
     link.click();
 
     URL.revokeObjectURL(url);
-    showStatus("Settings exported.");
+    showStatus("Settings exported");
   }
 
-  async function importSettingsFromFile(file) {
+  async function importStateFromFile(file) {
     const text = await file.text();
-    settingsState = await globalThis.ChaosFillStorage.importSettings(text);
-    bindStaticFieldsFromState();
-    renderRules();
+    appState = await globalThis.ChaosFillStorage.importState(text);
+    initFixedRowsFromState();
+    uiState.domainsExpanded = false;
+    uiState.activeTarget = "section-general";
     await notifyBackgroundSettingsChanged();
-    showStatus("Settings imported.");
+    render();
+    showStatus("Settings imported");
+  }
+
+  async function getCurrentTabDomainKey() {
+    if (!api.tabs?.query) return "";
+
+    const tabs = await new Promise((resolve) => {
+      try {
+        api.tabs.query({ active: true, currentWindow: true }, (result) => {
+          resolve(Array.isArray(result) ? result : []);
+        });
+      } catch (_error) {
+        resolve([]);
+      }
+    });
+
+    const activeTab = tabs[0];
+    if (!activeTab?.url) return "";
+
+    try {
+      const hostname = new URL(activeTab.url).hostname;
+      return globalThis.ChaosFillStorage.normalizeDomain(hostname);
+    } catch (_error) {
+      return "";
+    }
   }
 
   async function init() {
-    settingsState = await globalThis.ChaosFillStorage.getSettings();
-    bindStaticFieldsFromState();
-    renderRules();
+    hideStatus();
+    appState = await globalThis.ChaosFillStorage.getState();
+    initFixedRowsFromState();
 
-    document.addEventListener("click", (event) => {
-      const helpIcon = event.target.closest(".help-icon");
-      if (!helpIcon) return;
-      event.preventDefault();
-      event.stopPropagation();
-      helpIcon.focus();
-    });
+    const activeDomain = await getCurrentTabDomainKey();
+    if (activeDomain && appState.domains?.[activeDomain]) {
+      uiState.domainsExpanded = true;
+    }
 
-    $("toastClose").addEventListener("click", () => {
-      hideStatus();
-    });
-
-    $("addRuleBtn").addEventListener("click", () => {
-      settingsState.rules.push(createRuleTemplate());
-      renderRules();
-    });
+    $("sidebar").addEventListener("click", handleSidebarClick);
+    $("mainContent").addEventListener("input", handleMainInput);
+    $("mainContent").addEventListener("change", handleMainInput);
+    $("mainContent").addEventListener("click", handleMainClick);
 
     $("saveBtn").addEventListener("click", async () => {
       try {
-        await saveSettings();
+        await saveState();
       } catch (error) {
         showStatus(String(error.message || error), true);
       }
@@ -482,7 +946,7 @@
 
     $("resetBtn").addEventListener("click", async () => {
       try {
-        await resetSettings();
+        await resetState();
       } catch (error) {
         showStatus(String(error.message || error), true);
       }
@@ -490,7 +954,7 @@
 
     $("exportBtn").addEventListener("click", async () => {
       try {
-        await exportSettings();
+        await exportState();
       } catch (error) {
         showStatus(String(error.message || error), true);
       }
@@ -504,13 +968,19 @@
       const file = event.target.files?.[0];
       if (!file) return;
       try {
-        await importSettingsFromFile(file);
+        await importStateFromFile(file);
       } catch (error) {
         showStatus(String(error.message || error), true);
       } finally {
         event.target.value = "";
       }
     });
+
+    $("toastClose").addEventListener("click", () => {
+      hideStatus();
+    });
+
+    render();
   }
 
   document.addEventListener("DOMContentLoaded", () => {

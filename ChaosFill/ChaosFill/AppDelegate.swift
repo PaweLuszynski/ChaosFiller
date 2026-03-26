@@ -6,15 +6,21 @@
 //
 
 import Cocoa
+import os.log
 
 @main
 class AppDelegate: NSObject, NSApplicationDelegate {
+    private let appLog = OSLog(
+        subsystem: Bundle.main.bundleIdentifier ?? "com.paweluszynski.ChaosFill",
+        category: "AppDelegate"
+    )
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Override point for customization after application launch.
+        os_log("CHAOSFILL_APP: applicationDidFinishLaunching", log: appLog, type: .info)
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        os_log("CHAOSFILL_APP: applicationShouldTerminateAfterLastWindowClosed -> true", log: appLog, type: .info)
         return true
     }
 

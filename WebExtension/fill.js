@@ -1,6 +1,12 @@
 (() => {
-  function dispatchEvents(element, settings) {
-    if (settings?.general?.triggerEvents === false) {
+  function getSettings(configLike) {
+    return configLike?.settings || configLike || {};
+  }
+
+  function dispatchEvents(element, settingsLike) {
+    const settings = getSettings(settingsLike);
+    const triggerEvents = settings.triggerEvents ?? settings.general?.triggerEvents;
+    if (triggerEvents === false) {
       return;
     }
 
@@ -139,46 +145,57 @@
     return String(element.value || "").trim() !== "";
   }
 
-  function shouldSkipForExistingContent(element, settings) {
-    if (settings?.general?.ignoreExistingContent !== true) {
+  function shouldSkipForExistingContent(element, settingsLike) {
+    const settings = getSettings(settingsLike);
+    const ignoreExisting = settings.ignoreExistingContent ?? settings.general?.ignoreExistingContent;
+    if (ignoreExisting !== true) {
       return false;
     }
 
     return hasExistingContent(element);
   }
 
-  function fillField(element, settings, context = {}) {
-    try {
-      if (!globalThis.ChaosFillDom.isFillableElement(element, settings)) {
-        return { status: "skipped", reason: "not-fillable" };
+  function resolveDataMode(config) {
+    const mode = String(config?.dataMode || "random").toLowerCase();
+    if (["random", "session", "persona"].includes(mode)) {
+      return mode;
+    }
+    return "random";
+  }
+
+  function getCombinedIgnoreTokens(config, settings) {
+    const globalTokens = Array.isArray(settings?.ignoreMatchTokens)
+      ? settings.ignoreMatchTokens
+      : (Array.isArray(settings?.general?.ignoreMatchTokens) ? settings.general.ignoreMatchTokens : []);
+    const domainTokens = Array.isArray(config?.domain?.ignoreTokens) ? config.domain.ignoreTokens : [];
+    return [...globalTokens, ...domainTokens];
+  }
+
+  function shouldUseOverrideValue(resolved) {
+    return typeof resolved?.overrideValue === "string" && resolved.overrideValue.length > 0;
+  }
+
+  function resolveGeneratedValue(element, resolved, config, settings, context, bundle) {
+    if (shouldUseOverrideValue(resolved)) {
+      return resolved.overrideValue;
+    }
+
+    if (resolved?.hasFixedValue) {
+      return resolved.fixedValue;
+    }
+
+    const mode = resolveDataMode(config);
+
+    if (mode === "persona" && settings.personaFallbackToGenerated === false) {
+      return "";
+    }
+
+    if (mode === "session") {
+      const key = String(resolved?.resolvedKey || "").trim();
+      if (key && context?.sessionValues && Object.prototype.hasOwnProperty.call(context.sessionValues, key)) {
+        return context.sessionValues[key];
       }
 
-      if (!globalThis.ChaosFillRules.hasEnabledRules(settings?.rules)) {
-        return { status: "skipped", reason: "no-rules-configured" };
-      }
-
-      if (shouldSkipForExistingContent(element, settings)) {
-        return { status: "skipped", reason: "already-has-content" };
-      }
-
-      const bundle = globalThis.ChaosFillRules.buildMatchBundle(element, settings);
-
-      if (globalThis.ChaosFillRules.shouldIgnoreByTokens(bundle.text, settings?.general?.ignoreMatchTokens)) {
-        return { status: "skipped", reason: "ignored-token" };
-      }
-
-      const resolved = globalThis.ChaosFillRules.resolveGenerator(
-        element,
-        bundle,
-        settings,
-        globalThis.location.hostname
-      );
-
-      if (resolved?.source === "none") {
-        return { status: "skipped", reason: "no-rule-match" };
-      }
-
-      const kind = globalThis.ChaosFillDom.getFieldKind(element);
       const generated = globalThis.ChaosFillGenerators.generateForField(
         element,
         resolved,
@@ -186,6 +203,52 @@
         context,
         bundle
       );
+
+      if (key) {
+        context.sessionValues = context.sessionValues || {};
+        context.sessionValues[key] = generated;
+      }
+
+      return generated;
+    }
+
+    return globalThis.ChaosFillGenerators.generateForField(
+      element,
+      resolved,
+      settings,
+      context,
+      bundle
+    );
+  }
+
+  function fillField(element, config, context = {}) {
+    try {
+      const settings = getSettings(config);
+
+      if (!globalThis.ChaosFillDom.isFillableElement(element, settings)) {
+        return { status: "skipped", reason: "not-fillable" };
+      }
+
+      if (shouldSkipForExistingContent(element, settings)) {
+        return { status: "skipped", reason: "already-has-content" };
+      }
+
+      const bundle = globalThis.ChaosFillRules.buildMatchBundle(element, settings);
+      const ignoreTokens = getCombinedIgnoreTokens(config, settings);
+
+      if (globalThis.ChaosFillRules.shouldIgnoreByTokens(bundle.text, ignoreTokens)) {
+        return { status: "skipped", reason: "ignored-token" };
+      }
+
+      const resolved = globalThis.ChaosFillRules.resolveGenerator(
+        element,
+        bundle,
+        config,
+        globalThis.location.hostname
+      );
+
+      const kind = globalThis.ChaosFillDom.getFieldKind(element);
+      const generated = resolveGeneratedValue(element, resolved, config, settings, context, bundle);
 
       let changed = false;
 
@@ -208,7 +271,7 @@
       }
 
       if (changed) {
-        return { status: "filled", source: resolved.source, value: generated };
+        return { status: "filled", source: resolved.source, key: resolved.resolvedKey, value: generated };
       }
 
       return { status: "skipped", reason: "no-change" };
@@ -217,8 +280,13 @@
     }
   }
 
-  function fillForm(form, settings, context = {}) {
+  function fillForm(form, config, context = {}) {
+    const settings = getSettings(config);
     const fields = globalThis.ChaosFillDom.getFillableFields(form, settings);
+    return fillFieldCollection(fields, config, context);
+  }
+
+  function fillFieldCollection(fields, config, context = {}) {
     const summary = {
       filled: 0,
       skipped: 0,
@@ -239,7 +307,7 @@
         processedRadioNames.add(radioName);
       }
 
-      const result = fillField(field, settings, context);
+      const result = fillField(field, config, context);
 
       if (result.status === "filled") summary.filled += 1;
       else if (result.status === "error") summary.errors += 1;
@@ -249,11 +317,23 @@
     return summary;
   }
 
-  function fillBestForm(settings, context = {}) {
+  function fillBestForm(config, context = {}) {
+    const settings = getSettings(config);
     const form = globalThis.ChaosFillDom.getBestForm(settings);
     if (!form) {
+      const pageFields = globalThis.ChaosFillDom.getDocumentFillableFields(settings);
+      if (pageFields.length > 0) {
+        const summary = fillFieldCollection(pageFields, config, context);
+        return {
+          foundForm: false,
+          usedPageFallback: true,
+          ...summary
+        };
+      }
+
       return {
         foundForm: false,
+        usedPageFallback: false,
         filled: 0,
         skipped: 0,
         errors: 0,
@@ -261,7 +341,7 @@
       };
     }
 
-    const summary = fillForm(form, settings, context);
+    const summary = fillForm(form, config, context);
     return {
       foundForm: true,
       ...summary

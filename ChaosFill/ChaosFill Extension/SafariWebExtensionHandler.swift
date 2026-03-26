@@ -9,8 +9,18 @@ import SafariServices
 import os.log
 
 class SafariWebExtensionHandler: NSObject, NSExtensionRequestHandling {
+    private let extensionLog = OSLog(
+        subsystem: Bundle.main.bundleIdentifier ?? "com.paweluszynski.ChaosFill.Extension",
+        category: "SafariWebExtensionHandler"
+    )
+
+    override init() {
+        super.init()
+        os_log("CHAOSFILL_EXTENSION: SafariWebExtensionHandler initialized", log: extensionLog, type: .info)
+    }
 
     func beginRequest(with context: NSExtensionContext) {
+        os_log("CHAOSFILL_EXTENSION: beginRequest invoked with %{public}d input item(s)", log: extensionLog, type: .info, context.inputItems.count)
         let request = context.inputItems.first as? NSExtensionItem
 
         let profile: UUID?
@@ -27,7 +37,13 @@ class SafariWebExtensionHandler: NSObject, NSExtensionRequestHandling {
             message = request?.userInfo?["message"]
         }
 
-        os_log(.default, "Received message from browser.runtime.sendNativeMessage: %@ (profile: %@)", String(describing: message), profile?.uuidString ?? "none")
+        os_log(
+            "CHAOSFILL_EXTENSION: Received native message=%{public}@ profile=%{public}@",
+            log: extensionLog,
+            type: .info,
+            String(describing: message),
+            profile?.uuidString ?? "none"
+        )
 
         let response = NSExtensionItem()
         if #available(iOS 15.0, macOS 11.0, *) {
@@ -36,6 +52,7 @@ class SafariWebExtensionHandler: NSObject, NSExtensionRequestHandling {
             response.userInfo = [ "message": [ "echo": message ] ]
         }
 
+        os_log("CHAOSFILL_EXTENSION: Completing request and returning echo response", log: extensionLog, type: .info)
         context.completeRequest(returningItems: [ response ], completionHandler: nil)
     }
 

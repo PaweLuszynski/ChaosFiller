@@ -18,8 +18,9 @@
   "background": {
     "scripts": [
       "storage.js",
+      "rules.js",
       "background.js"
-    ],
+      ],
     "persistent": false
   },
   "browser_action": {
@@ -43,7 +44,7 @@
         "fill.js",
         "content.js"
       ],
-      "run_at": "document_idle",
+      "run_at": "document_start",
       "all_frames": true
     }
   ]

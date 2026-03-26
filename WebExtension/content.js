@@ -1,5 +1,10 @@
 (() => {
   const api = globalThis.browser ?? globalThis.chrome;
+  const CONTENT_LOG_PREFIX = "CHAOSFILL_CONTENT:";
+  const debugLog = (...args) => console.log(CONTENT_LOG_PREFIX, ...args);
+  const debugError = (...args) => console.error(CONTENT_LOG_PREFIX, ...args);
+
+  debugLog("content.js loaded", globalThis.location.href);
   let lastContextElement = null;
 
   function rememberContextElement(event) {
@@ -67,24 +72,34 @@
     };
   }
 
-  async function canRun(settings) {
-    const decision = globalThis.ChaosFillRules.isDomainBlocked(globalThis.location.href, settings);
+  async function canRun(settingsLike) {
+    const decision = globalThis.ChaosFillRules.isDomainBlocked(globalThis.location.href, settingsLike);
     return !decision.blocked ? { ok: true } : { ok: false, ...decision };
   }
 
   async function runCommand(message) {
+    debugLog("content runCommand", { type: message?.type, href: globalThis.location.href });
     if (message.type === "CHAOS_FILL_CAPTURE_CONTEXT_FIELD") {
       return getContextFieldConfigurationData();
     }
 
     if (message.type === "CHAOS_FILL_CAPTURE_PAGE_FIELDS") {
-      const settings = await globalThis.ChaosFillStorage.getSettings();
-      return getPageFieldConfigurationData(settings);
+      const state = await globalThis.ChaosFillStorage.getState();
+      return getPageFieldConfigurationData(state.settings);
     }
 
-    const settings = await globalThis.ChaosFillStorage.getSettings();
-    const allowed = await canRun(settings);
+    const effectiveConfig = message.config || (await globalThis.ChaosFillStorage.getEffectiveDomainConfig(globalThis.location.hostname));
+    if (effectiveConfig?.domain && effectiveConfig.domain.enabled === false) {
+      debugLog("content runCommand blocked: domain disabled", { domain: effectiveConfig?.domain?.id });
+      return {
+        ok: false,
+        blocked: true,
+        reason: "domain-disabled"
+      };
+    }
+    const allowed = await canRun(effectiveConfig.settings);
     if (!allowed.ok) {
+      debugLog("content runCommand blocked by policy", allowed);
       return {
         ok: false,
         blocked: true,
@@ -93,11 +108,17 @@
       };
     }
 
-    const context = { lastTextValue: "" };
+    const context = {
+      lastTextValue: "",
+      sessionValues: message.sessionValues && typeof message.sessionValues === "object"
+        ? { ...message.sessionValues }
+        : {}
+    };
 
     if (message.type === "CHAOS_FILL_FILL_BEST_FORM") {
-      const summary = globalThis.ChaosFillFill.fillBestForm(settings, context);
-      return { ok: true, action: message.type, ...summary };
+      const summary = globalThis.ChaosFillFill.fillBestForm(effectiveConfig, context);
+      debugLog("content fill best form summary", summary);
+      return { ok: true, action: message.type, ...summary, sessionValues: context.sessionValues };
     }
 
     if (message.type === "CHAOS_FILL_FILL_CONTEXT_FIELD") {
@@ -106,8 +127,9 @@
         return { ok: false, reason: "no-target-field" };
       }
 
-      const result = globalThis.ChaosFillFill.fillField(target, settings, context);
-      return { ok: true, action: message.type, result };
+      const result = globalThis.ChaosFillFill.fillField(target, effectiveConfig, context);
+      debugLog("content fill context field result", result);
+      return { ok: true, action: message.type, result, sessionValues: context.sessionValues };
     }
 
     if (message.type === "CHAOS_FILL_FILL_CONTEXT_FORM") {
@@ -115,18 +137,20 @@
       const form = target ? globalThis.ChaosFillDom.getOwningForm(target) : null;
 
       if (!form) {
-        const summary = globalThis.ChaosFillFill.fillBestForm(settings, context);
-        return { ok: true, action: message.type, fallback: true, ...summary };
+        const summary = globalThis.ChaosFillFill.fillBestForm(effectiveConfig, context);
+        return { ok: true, action: message.type, fallback: true, ...summary, sessionValues: context.sessionValues };
       }
 
-      const summary = globalThis.ChaosFillFill.fillForm(form, settings, context);
-      return { ok: true, action: message.type, foundForm: true, ...summary };
+      const summary = globalThis.ChaosFillFill.fillForm(form, effectiveConfig, context);
+      debugLog("content fill context form summary", summary);
+      return { ok: true, action: message.type, foundForm: true, ...summary, sessionValues: context.sessionValues };
     }
 
     return { ok: false, reason: "unknown-command" };
   }
 
   globalThis.document.addEventListener("contextmenu", rememberContextElement, true);
+  debugLog("runtime.onMessage listener registered");
 
   api.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (!message || typeof message.type !== "string" || !message.type.startsWith("CHAOS_FILL_")) {
@@ -135,7 +159,10 @@
 
     runCommand(message)
       .then((result) => sendResponse(result))
-      .catch((error) => sendResponse({ ok: false, reason: String(error) }));
+      .catch((error) => {
+        debugError("content runCommand error", error);
+        sendResponse({ ok: false, reason: String(error) });
+      });
 
     return true;
   });

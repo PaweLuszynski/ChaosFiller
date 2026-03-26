@@ -7,149 +7,29 @@
     <link rel="stylesheet" href="options.css" />
   </head>
   <body>
-    <main class="container">
-      <header class="header">
-        <h1>ChaosFill Options</h1>
-        <div class="actions">
-          <button id="saveBtn" class="primary">Save settings</button>
-          <button id="resetBtn">Reset defaults</button>
-          <button id="exportBtn">Export JSON</button>
-          <button id="importBtn">Import JSON</button>
-          <input id="importFile" type="file" accept="application/json" hidden />
+    <div class="layout">
+      <aside class="sidebar" id="sidebar"></aside>
+
+      <main class="main">
+        <header class="topbar">
+          <h1>ChaosFill Options</h1>
+          <div class="actions">
+            <button id="saveBtn" class="primary">Save settings</button>
+            <button id="resetBtn">Reset defaults</button>
+            <button id="exportBtn">Export JSON</button>
+            <button id="importBtn">Import JSON</button>
+            <input id="importFile" type="file" accept="application/json" hidden />
+          </div>
+        </header>
+
+        <div id="toast" class="toast" hidden>
+          <span id="toastMessage" class="toast-message"></span>
+          <button id="toastClose" class="toast-close" type="button" aria-label="Close notification">x</button>
         </div>
-      </header>
 
-      <div id="toast" class="toast" hidden>
-        <span id="toastMessage" class="toast-message"></span>
-        <button id="toastClose" class="toast-close" type="button" aria-label="Close notification">x</button>
-      </div>
-
-      <section class="panel panel-first">
-        <h2>Custom Fields / Rules</h2>
-        <p>Rules are evaluated top to bottom. First match wins. Use match target to bind a rule to a specific field attribute like id or placeholder.</p>
-        <div id="rulesList" class="rules-list"></div>
-        <button id="addRuleBtn">Add rule</button>
-      </section>
-
-      <section class="panel">
-        <h2>Password Settings</h2>
-        <label class="inline-option">
-          <input type="radio" name="passwordMode" value="fixed" id="passwordModeFixed" />
-          <span class="label-title">Use fixed password <span class="help-icon" tabindex="0" role="button" aria-label="Always use one exact password value. Example: P@$$w0rd!" data-help="Always use one exact password value. Example: P@$$w0rd!">i</span></span>
-        </label>
-        <label>
-          <span class="label-title">Fixed password value <span class="help-icon" tabindex="0" role="button" aria-label="Enter the exact password string to use when fixed mode is selected." data-help="Enter the exact password string to use when fixed mode is selected.">i</span></span>
-          <input id="passwordFixedValue" type="text" />
-        </label>
-        <label class="inline-option">
-          <input type="radio" name="passwordMode" value="random" id="passwordModeRandom" />
-          <span class="label-title">Use random password length <span class="help-icon" tabindex="0" role="button" aria-label="Generate a random password each fill with the length below. Example length: 16." data-help="Generate a random password each fill with the length below. Example length: 16.">i</span></span>
-        </label>
-        <label>
-          <span class="label-title">Random password length <span class="help-icon" tabindex="0" role="button" aria-label="Enter the number of characters to generate in random mode." data-help="Enter the number of characters to generate in random mode.">i</span></span>
-          <input id="passwordRandomLength" type="number" min="4" max="128" />
-        </label>
-      </section>
-
-      <section class="panel">
-        <h2>Field Options</h2>
-        <label>
-          <span class="label-title">Ignore match tokens (comma/newline separated) <span class="help-icon" tabindex="0" role="button" aria-label="Enter tokens to skip fields containing those words. Separate values by comma or new line." data-help="Enter tokens to skip fields containing those words. Separate values by comma or new line.">i</span></span>
-          <textarea id="ignoreMatchTokens" rows="2"></textarea>
-        </label>
-        <label class="inline-option">
-          <input id="ignoreHiddenInvisible" type="checkbox" />
-          <span class="label-title">Ignore hidden/invisible fields <span class="help-icon" tabindex="0" role="button" aria-label="When enabled, hidden, display:none, visibility:hidden, and zero-size fields are not filled." data-help="When enabled, hidden, display:none, visibility:hidden, and zero-size fields are not filled.">i</span></span>
-        </label>
-        <label class="inline-option">
-          <input id="ignoreExistingContent" type="checkbox" />
-          <span class="label-title">Ignore fields that already have content <span class="help-icon" tabindex="0" role="button" aria-label="When enabled, only empty fields are filled. Useful to avoid overwriting typed values." data-help="When enabled, only empty fields are filled. Useful to avoid overwriting typed values.">i</span></span>
-        </label>
-        <label>
-          <span class="label-title">Confirmation field tokens (comma/newline separated) <span class="help-icon" tabindex="0" role="button" aria-label="Enter tokens used to detect confirmation fields. Separate values by comma or new line." data-help="Enter tokens used to detect confirmation fields. Separate values by comma or new line.">i</span></span>
-          <textarea id="confirmationTokens" rows="2"></textarea>
-        </label>
-        <label>
-          <span class="label-title">Agree-to-terms tokens (comma/newline separated) <span class="help-icon" tabindex="0" role="button" aria-label="Enter tokens used to detect terms/agreement checkboxes. Separate values by comma or new line." data-help="Enter tokens used to detect terms/agreement checkboxes. Separate values by comma or new line.">i</span></span>
-          <textarea id="agreeTokens" rows="2"></textarea>
-        </label>
-
-        <fieldset>
-          <legend>Attributes used for matching</legend>
-          <label class="inline-option"><input id="attrId" type="checkbox" /> <span class="label-title">id <span class="help-icon" tabindex="0" role="button" aria-label="Include HTML id in match bundle. Example: company.salesTaxId." data-help="Include HTML id in match bundle. Example: company.salesTaxId.">i</span></span></label>
-          <label class="inline-option"><input id="attrName" type="checkbox" /> <span class="label-title">name <span class="help-icon" tabindex="0" role="button" aria-label="Include field name in match bundle. Example: vendor.salesTaxId." data-help="Include field name in match bundle. Example: vendor.salesTaxId.">i</span></span></label>
-          <label class="inline-option"><input id="attrLabel" type="checkbox" /> <span class="label-title">label <span class="help-icon" tabindex="0" role="button" aria-label="Include associated label text. Example: Sales Tax ID." data-help="Include associated label text. Example: Sales Tax ID.">i</span></span></label>
-          <label class="inline-option"><input id="attrAriaLabel" type="checkbox" /> <span class="label-title">aria-label <span class="help-icon" tabindex="0" role="button" aria-label="Include aria-label text. Example: VAT Number." data-help="Include aria-label text. Example: VAT Number.">i</span></span></label>
-          <label class="inline-option"><input id="attrAriaLabelledby" type="checkbox" /> <span class="label-title">aria-labelledby <span class="help-icon" tabindex="0" role="button" aria-label="Include text of elements referenced by aria-labelledby." data-help="Include text of elements referenced by aria-labelledby.">i</span></span></label>
-          <label class="inline-option"><input id="attrPlaceholder" type="checkbox" /> <span class="label-title">placeholder <span class="help-icon" tabindex="0" role="button" aria-label="Include placeholder text. Example: Enter sales tax ID." data-help="Include placeholder text. Example: Enter sales tax ID.">i</span></span></label>
-          <label class="inline-option"><input id="attrClass" type="checkbox" /> <span class="label-title">class <span class="help-icon" tabindex="0" role="button" aria-label="Include CSS class names. Example: js-sales-tax-id." data-help="Include CSS class names. Example: js-sales-tax-id.">i</span></span></label>
-          <label class="inline-option"><input id="attrType" type="checkbox" /> <span class="label-title">type <span class="help-icon" tabindex="0" role="button" aria-label="Include input type. Example: text, email, date." data-help="Include input type. Example: text, email, date.">i</span></span></label>
-        </fieldset>
-      </section>
-
-      <section class="panel">
-        <h2>General</h2>
-        <label class="inline-option">
-          <input id="triggerEvents" type="checkbox" />
-          <span class="label-title">Trigger input/change events <span class="help-icon" tabindex="0" role="button" aria-label="Dispatch input and change after fill for React/Angular compatibility." data-help="Dispatch input and change after fill for React/Angular compatibility.">i</span></span>
-        </label>
-        <label class="inline-option">
-          <input id="contextMenuEnabled" type="checkbox" />
-          <span class="label-title">Enable context menu actions <span class="help-icon" tabindex="0" role="button" aria-label="Shows Fill this field and Fill this form on right-click." data-help="Shows Fill this field and Fill this form on right-click.">i</span></span>
-        </label>
-        <label>
-          <span class="label-title">Ignored domains (regex per line) <span class="help-icon" tabindex="0" role="button" aria-label="Enter one domain-matching regex per line. The extension will not run where any line matches." data-help="Enter one domain-matching regex per line. The extension will not run where any line matches.">i</span></span>
-          <textarea id="ignoredDomains" rows="4"></textarea>
-        </label>
-        <label class="inline-option">
-          <input id="enableSensitiveDenylist" type="checkbox" />
-          <span class="label-title">Block sensitive denylist by default <span class="help-icon" tabindex="0" role="button" aria-label="Blocks pages with payment/banking patterns unless disabled." data-help="Blocks pages with payment/banking patterns unless disabled.">i</span></span>
-        </label>
-      </section>
-
-      <section class="panel">
-        <h2>Fallback & Format</h2>
-        <label>
-          <span class="label-title">Max length fallback <span class="help-icon" tabindex="0" role="button" aria-label="Enter the default maximum text length used when no specific rule overrides it." data-help="Enter the default maximum text length used when no specific rule overrides it.">i</span></span>
-          <input id="maxLength" type="number" min="1" max="1024" />
-        </label>
-        <label>
-          <span class="label-title">Lorem max words <span class="help-icon" tabindex="0" role="button" aria-label="Enter the maximum number of words for lorem fallback text." data-help="Enter the maximum number of words for lorem fallback text.">i</span></span>
-          <input id="loremMaxWords" type="number" min="1" max="100" />
-        </label>
-        <label>
-          <span class="label-title">Email domain <span class="help-icon" tabindex="0" role="button" aria-label="Enter the email domain used by the email generator. Use only domain part, for example example.com." data-help="Enter the email domain used by the email generator. Use only domain part, for example example.com.">i</span></span>
-          <input id="emailDomain" type="text" />
-        </label>
-        <label>
-          <span class="label-title">Phone format <span class="help-icon" tabindex="0" role="button" aria-label="Enter a phone pattern. Use # as digit placeholders." data-help="Enter a phone pattern. Use # as digit placeholders.">i</span></span>
-          <input id="phoneFormat" type="text" />
-        </label>
-        <label>
-          <span class="label-title">Date start (yyyy-MM-dd) <span class="help-icon" tabindex="0" role="button" aria-label="Enter the start date for generated date values." data-help="Enter the start date for generated date values.">i</span></span>
-          <input id="dateStart" type="date" />
-        </label>
-        <label>
-          <span class="label-title">Date end (yyyy-MM-dd) <span class="help-icon" tabindex="0" role="button" aria-label="Enter the end date for generated date values." data-help="Enter the end date for generated date values.">i</span></span>
-          <input id="dateEnd" type="date" />
-        </label>
-        <label>
-          <span class="label-title">Checkbox default <span class="help-icon" tabindex="0" role="button" aria-label="Behavior when checkbox has no matching rule. Example: Random or Always checked." data-help="Behavior when checkbox has no matching rule. Example: Random or Always checked.">i</span></span>
-          <select id="checkboxDefault">
-            <option value="random">Random</option>
-            <option value="checked">Always checked</option>
-            <option value="unchecked">Always unchecked</option>
-          </select>
-        </label>
-        <label>
-          <span class="label-title">Radio strategy <span class="help-icon" tabindex="0" role="button" aria-label="How to pick a radio in a group by default. Example: Random option." data-help="How to pick a radio in a group by default. Example: Random option.">i</span></span>
-          <select id="radioStrategy">
-            <option value="random">Random option</option>
-            <option value="firstEnabled">First enabled option</option>
-          </select>
-        </label>
-      </section>
-    </main>
+        <section id="mainContent" class="content"></section>
+      </main>
+    </div>
 
     <script src="../storage.js"></script>
     <script src="options.js"></script>

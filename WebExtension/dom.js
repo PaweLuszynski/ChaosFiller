@@ -87,7 +87,8 @@
       return false;
     }
 
-    if (settings?.general?.ignoreHiddenInvisible !== false && !isVisible(element)) {
+    const ignoreHiddenInvisible = settings?.ignoreHiddenInvisible ?? settings?.general?.ignoreHiddenInvisible;
+    if (ignoreHiddenInvisible !== false && !isVisible(element)) {
       return false;
     }
 
@@ -185,6 +186,11 @@
     return all.filter((element) => isFillableElement(element, settings));
   }
 
+  function getDocumentFillableFields(settings) {
+    const all = Array.from(globalThis.document.querySelectorAll("input, textarea, select"));
+    return all.filter((element) => isFillableElement(element, settings));
+  }
+
   function getClosestFillable(target, settings) {
     if (!(target instanceof Element)) {
       return null;
@@ -248,6 +254,7 @@
     getFieldMetadata,
     getOwningForm,
     getFillableFields,
+    getDocumentFillableFields,
     getClosestFillable,
     getBestForm,
     getRadioGroup

@@ -22,14 +22,19 @@
       .trim();
   }
 
+  function getSettings(configLike) {
+    return configLike?.settings || configLike || {};
+  }
+
   function getCheckedAttribute(attrMap, key, defaultValue = true) {
     if (!attrMap || typeof attrMap !== "object") return defaultValue;
     if (!(key in attrMap)) return defaultValue;
     return attrMap[key] !== false;
   }
 
-  function buildMatchBundle(element, settings) {
-    const attrs = settings?.general?.useAttributes || {};
+  function buildMatchBundle(element, settingsLike) {
+    const settings = getSettings(settingsLike);
+    const attrs = settings?.useAttributes || settings?.general?.useAttributes || {};
     const metadata = globalThis.ChaosFillDom.getFieldMetadata(element);
     const parts = [];
 
@@ -196,32 +201,91 @@
     }
   }
 
-  function resolveGenerator(element, bundle, settings, hostname) {
-    const rules = settings?.rules;
-    const match = resolveRule(rules, bundle, hostname || globalThis.location.hostname);
+  function sanitizeKey(value) {
+    return String(value || "")
+      .trim()
+      .replace(/\s+/g, "_")
+      .replace(/[^a-zA-Z0-9_.-]/g, "")
+      .slice(0, 120);
+  }
 
-    if (match) {
-      return {
-        source: "rule",
-        ruleId: match.rule.id,
-        outputMask: typeof match.rule.outputMask === "string" ? match.rule.outputMask : "",
-        generator: {
-          type: match.rule.generator?.type || "lorem",
-          items: Array.isArray(match.rule.generator?.items) ? match.rule.generator.items : []
+  function inferResolvedKey(element, bundle, matchedRule, generator) {
+    const explicit = sanitizeKey(matchedRule?.resolvedKey);
+    if (explicit) return explicit;
+
+    const generatorType = sanitizeKey(generator?.type);
+    if (generatorType && !["lorem", "checkbox-default", "radio-default", "select-default"].includes(generatorType)) {
+      return generatorType;
+    }
+
+    const metadata = bundle?.metadata || {};
+    const fromName = sanitizeKey(metadata.name);
+    if (fromName) return fromName;
+
+    const fromId = sanitizeKey(metadata.id);
+    if (fromId) return fromId;
+
+    const fromPlaceholder = sanitizeKey(metadata.placeholder);
+    if (fromPlaceholder) return fromPlaceholder;
+
+    const kind = globalThis.ChaosFillDom.getFieldKind(element) || "text";
+    return `field.${kind}`;
+  }
+
+  function lookupFixedValue(fixedValues, resolvedKey) {
+    if (!fixedValues || typeof fixedValues !== "object" || !resolvedKey) {
+      return { found: false, value: "" };
+    }
+
+    if (Object.prototype.hasOwnProperty.call(fixedValues, resolvedKey)) {
+      return { found: true, value: fixedValues[resolvedKey] };
+    }
+
+    const normalizedKey = resolvedKey.toLowerCase();
+    for (const [key, value] of Object.entries(fixedValues)) {
+      if (String(key || "").toLowerCase() === normalizedKey) {
+        return { found: true, value };
+      }
+    }
+
+    return { found: false, value: "" };
+  }
+
+  function resolveGenerator(element, bundle, configLike, hostname) {
+    const config = configLike || {};
+    const domainRules = Array.isArray(config.domainRules) ? config.domainRules : [];
+    const globalRules = Array.isArray(config.globalRules) ? config.globalRules : [];
+
+    const safeHostname = hostname || globalThis.location.hostname;
+    const domainMatch = resolveRule(domainRules, bundle, safeHostname);
+    const globalMatch = domainMatch ? null : resolveRule(globalRules, bundle, safeHostname);
+
+    const matchedRule = domainMatch?.rule || globalMatch?.rule || null;
+    const source = domainMatch
+      ? "domain-rule"
+      : globalMatch
+        ? "global-rule"
+        : "fallback";
+
+    const generator = matchedRule
+      ? {
+          type: matchedRule.generator?.type || "lorem",
+          items: Array.isArray(matchedRule.generator?.items) ? matchedRule.generator.items : []
         }
-      };
-    }
+      : getFallbackGenerator(element);
 
-    if (hasEnabledRules(rules)) {
-      return {
-        source: "none",
-        generator: null
-      };
-    }
+    const resolvedKey = inferResolvedKey(element, bundle, matchedRule, generator);
+    const fixedValueLookup = lookupFixedValue(config.fixedValues, resolvedKey);
 
     return {
-      source: "fallback",
-      generator: getFallbackGenerator(element)
+      source,
+      ruleId: matchedRule?.id || null,
+      outputMask: typeof matchedRule?.outputMask === "string" ? matchedRule.outputMask : "",
+      generator,
+      resolvedKey,
+      overrideValue: typeof matchedRule?.overrideValue === "string" ? matchedRule.overrideValue : "",
+      fixedValue: fixedValueLookup.found ? fixedValueLookup.value : null,
+      hasFixedValue: fixedValueLookup.found
     };
   }
 
@@ -245,13 +309,13 @@
     return values.some((part) => safeText.includes(part));
   }
 
-  function isDomainBlocked(urlLike, settings) {
+  function isDomainBlocked(urlLike, settingsLike) {
+    const settings = getSettings(settingsLike);
     const url = typeof urlLike === "string" ? new URL(urlLike) : urlLike;
     const host = normalizeText(url.hostname);
     const path = normalizeText(url.pathname);
-    const general = settings?.general || {};
 
-    if (general.enableSensitiveDenylist !== false) {
+    if (settings.sensitiveDenylistEnabled !== false && settings.general?.enableSensitiveDenylist !== false) {
       if (containsAny(host, DEFAULT_SENSITIVE_HOST_PARTS)) {
         return { blocked: true, reason: "sensitive-host" };
       }
@@ -260,7 +324,10 @@
       }
     }
 
-    const ignoredDomains = Array.isArray(general.ignoredDomains) ? general.ignoredDomains : [];
+    const ignoredDomains = Array.isArray(settings.ignoredDomains)
+      ? settings.ignoredDomains
+      : (Array.isArray(settings.general?.ignoredDomains) ? settings.general.ignoredDomains : []);
+
     for (const pattern of ignoredDomains) {
       const candidate = String(pattern || "").trim();
       if (!candidate) continue;
@@ -274,12 +341,20 @@
     return { blocked: false };
   }
 
-  function isConfirmationField(bundle, settings) {
-    return shouldIgnoreByTokens(bundle.text, settings?.general?.confirmationTokens || []);
+  function isConfirmationField(bundle, settingsLike) {
+    const settings = getSettings(settingsLike);
+    const tokens = Array.isArray(settings.confirmationTokens)
+      ? settings.confirmationTokens
+      : (Array.isArray(settings.general?.confirmationTokens) ? settings.general.confirmationTokens : []);
+    return shouldIgnoreByTokens(bundle.text, tokens);
   }
 
-  function isAgreeField(bundle, settings) {
-    return shouldIgnoreByTokens(bundle.text, settings?.general?.agreeTokens || []);
+  function isAgreeField(bundle, settingsLike) {
+    const settings = getSettings(settingsLike);
+    const tokens = Array.isArray(settings.agreeTokens)
+      ? settings.agreeTokens
+      : (Array.isArray(settings.general?.agreeTokens) ? settings.general.agreeTokens : []);
+    return shouldIgnoreByTokens(bundle.text, tokens);
   }
 
   globalThis.ChaosFillRules = {
@@ -292,6 +367,8 @@
     resolveRule,
     hasEnabledRules,
     resolveGenerator,
+    lookupFixedValue,
+    inferResolvedKey,
     shouldIgnoreByTokens,
     isDomainBlocked,
     isConfirmationField,
