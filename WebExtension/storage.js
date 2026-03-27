@@ -277,6 +277,11 @@
       outputMask: typeof safeRule.outputMask === "string" ? safeRule.outputMask : "",
       domainRegex: typeof safeRule.domainRegex === "string" ? safeRule.domainRegex : "",
       resolvedKey: safeString(safeRule.resolvedKey),
+      suggestionConfidence: ["high", "medium", "low"].includes(safeString(safeRule.suggestionConfidence).toLowerCase())
+        ? safeString(safeRule.suggestionConfidence).toLowerCase()
+        : "",
+      suggestionReason: typeof safeRule.suggestionReason === "string" ? safeRule.suggestionReason : "",
+      suggestedGenerator: typeof safeRule.suggestedGenerator === "string" ? safeRule.suggestedGenerator : "",
       overrideEnabled: typeof safeRule.overrideEnabled === "boolean"
         ? safeRule.overrideEnabled
         : (typeof safeRule.overrideValue === "string" && safeRule.overrideValue.length > 0),

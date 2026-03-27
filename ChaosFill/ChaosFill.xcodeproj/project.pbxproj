@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		F19740E02F76B29A0069B304 /* generatorSuggestion.js in Resources */ = {isa = PBXBuildFile; fileRef = F19740DF2F76B29A0069B304 /* generatorSuggestion.js */; };
 		F1D97B252F5B1CBF002F78AA /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1D97B242F5B1CBF002F78AA /* AppDelegate.swift */; };
 		F1D97B292F5B1CBF002F78AA /* Main.html in Resources */ = {isa = PBXBuildFile; fileRef = F1D97B272F5B1CBF002F78AA /* Main.html */; };
 		F1D97B2B2F5B1CBF002F78AA /* Icon.png in Resources */ = {isa = PBXBuildFile; fileRef = F1D97B2A2F5B1CBF002F78AA /* Icon.png */; };
@@ -54,6 +55,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		F19740DF2F76B29A0069B304 /* generatorSuggestion.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = generatorSuggestion.js; sourceTree = "<group>"; };
 		F1D97B212F5B1CBF002F78AA /* ChaosFill.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ChaosFill.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		F1D97B242F5B1CBF002F78AA /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		F1D97B282F5B1CBF002F78AA /* Base */ = {isa = PBXFileReference; lastKnownFileType = text.html; name = Base; path = Base.lproj/Main.html; sourceTree = "<group>"; };
@@ -152,6 +154,7 @@
 		F1D97B4D2F5B1CC1002F78AA /* Resources */ = {
 			isa = PBXGroup;
 			children = (
+				F19740DF2F76B29A0069B304 /* generatorSuggestion.js */,
 				F1D97B4E2F5B1CC1002F78AA /* options */,
 				F1D97B4F2F5B1CC1002F78AA /* rules.js */,
 				F1D97B502F5B1CC1002F78AA /* background.js */,
@@ -269,6 +272,7 @@
 				F1D97B5F2F5B1CC1002F78AA /* content.js in Resources */,
 				F1D97B592F5B1CC1002F78AA /* rules.js in Resources */,
 				F1D97B602F5B1CC1002F78AA /* generators.js in Resources */,
+				F19740E02F76B29A0069B304 /* generatorSuggestion.js in Resources */,
 				F1D97B5E2F5B1CC1002F78AA /* manifest.json in Resources */,
 				F1D97B5D2F5B1CC1002F78AA /* dom.js in Resources */,
 				F1D97B5B2F5B1CC1002F78AA /* fill.js in Resources */,
