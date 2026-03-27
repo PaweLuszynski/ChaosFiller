@@ -148,6 +148,7 @@
     agreeTokens: ["agree", "terms", "conditions"],
     ignoredDomains: [],
     sensitiveDenylistEnabled: true,
+    debugMatching: false,
     useAttributes: {
       id: true,
       name: true,
@@ -326,6 +327,7 @@
     merged.ignoreHiddenInvisible = merged.ignoreHiddenInvisible !== false;
     merged.ignoreExistingContent = merged.ignoreExistingContent === true;
     merged.sensitiveDenylistEnabled = merged.sensitiveDenylistEnabled !== false;
+    merged.debugMatching = merged.debugMatching === true;
 
     merged.ignoreMatchTokens = normalizeTokenArray(merged.ignoreMatchTokens, DEFAULT_SETTINGS.ignoreMatchTokens);
     merged.confirmationTokens = normalizeTokenArray(merged.confirmationTokens, DEFAULT_SETTINGS.confirmationTokens);

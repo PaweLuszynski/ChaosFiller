@@ -1,6 +1,23 @@
 (() => {
+  const RULE_LOG_PREFIX = "CHAOSFILL_RULES:";
+
   function getSettings(configLike) {
     return configLike?.settings || configLike || {};
+  }
+
+  function logFieldResolution(bundle, resolved, generated, resultStatus) {
+    if (!resolved?.debug?.enabled) return;
+
+    console.log(RULE_LOG_PREFIX, "fill decision", {
+      fieldMetadata: bundle?.metadata || {},
+      source: resolved.source,
+      ruleId: resolved.ruleId,
+      ruleScore: resolved.ruleScore ?? null,
+      generator: resolved.generator?.type || "lorem",
+      resolvedKey: resolved.resolvedKey,
+      resultStatus,
+      generatedPreview: String(generated ?? "").slice(0, 120)
+    });
   }
 
   function dispatchEvents(element, settingsLike) {
@@ -272,6 +289,8 @@
           context.lastTextValue = String(element.value || "");
         }
       }
+
+      logFieldResolution(bundle, resolved, generated, changed ? "filled" : "no-change");
 
       if (changed) {
         return { status: "filled", source: resolved.source, key: resolved.resolvedKey, value: generated };
