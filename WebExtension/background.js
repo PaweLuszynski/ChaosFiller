@@ -13,21 +13,9 @@
   const MENU_ADD_ALL_FIELDS_TO_CONFIG = "chaos-fill-add-all-fields-to-config";
 
   const runtimeSessions = new Map();
-
-  const VAT_HINT_REGEX = /\b(vat|ust|uid|sales[\s._-]*tax|tax[\s._-]*(id|number))\b/i;
-  const EMAIL_HINT_REGEX = /\b(e[\s._-]*mail)\b/i;
-  const PHONE_HINT_REGEX = /\b(phone|mobile|tel|telephone)\b/i;
-  const NUMBER_HINT_REGEX = /\b(number|amount|qty|quantity|count|age)\b/i;
-  const COMPANY_HINT_REGEX = /\b(company|organisation|organization|business|firm)\b/i;
-  const STREET_HINT_REGEX = /\b(street|address|addr|line\s*1|line\s*2)\b/i;
-  const CITY_HINT_REGEX = /\b(city|town)\b/i;
-  const ZIP_HINT_REGEX = /\b(zip|postal|postcode|post[\s._-]*code)\b/i;
-  const COUNTRY_HINT_REGEX = /\b(country|nation)\b/i;
-  const IBAN_HINT_REGEX = /\b(iban|account[\s._-]*number|bank[\s._-]*account)\b/i;
-  const BIC_HINT_REGEX = /\b(bic|swift)\b/i;
-  const FIRST_NAME_HINT_REGEX = /\b(first[\s._-]*name|given[\s._-]*name|forename)\b/i;
-  const LAST_NAME_HINT_REGEX = /\b(last[\s._-]*name|family[\s._-]*name|surname)\b/i;
-  const FULL_NAME_HINT_REGEX = /\b(full[\s._-]*name|name)\b/i;
+  // LEGACY GENERATOR SUGGESTION (DEPRECATED)
+  // Previous inline keyword/regex generator assignment lived in this file.
+  // It has been replaced by WebExtension/generatorSuggestion.js.
 
   function sessionKey(tabId, domain) {
     return `${tabId}:${domain}`;
@@ -164,26 +152,49 @@
     return uuidLike || longHashLike || (containsLongDigits && mixed);
   }
 
-  function normalizeForHint(value) {
-    return safeString(value)
-      .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
-      .replace(/[._[\](){}-]+/g, " ")
-      .replace(/\s+/g, " ")
-      .toLowerCase();
+  function mapSuggestedIntentToRule(suggestedIntent) {
+    const intent = safeString(suggestedIntent);
+    switch (intent) {
+      case "streetAddress1":
+        return { generatorType: "street", resolvedKey: "streetAddress1", outputMask: "" };
+      case "streetAddress2":
+        return { generatorType: "street", resolvedKey: "streetAddress2", outputMask: "" };
+      case "postalCode":
+        return { generatorType: "zip", resolvedKey: "postalCode", outputMask: "" };
+      case "genericText":
+        return { generatorType: "lorem", resolvedKey: "genericText", outputMask: "" };
+      case "date":
+        return { generatorType: "date", resolvedKey: "date", outputMask: "" };
+      case "vatId":
+        return { generatorType: "vatId", resolvedKey: "vatId", outputMask: "DE#########" };
+      case "firstName":
+      case "lastName":
+      case "fullName":
+      case "company":
+      case "email":
+      case "phone":
+      case "city":
+      case "country":
+      case "iban":
+      case "bic":
+      case "password":
+        return { generatorType: intent, resolvedKey: intent, outputMask: "" };
+      default:
+        return { generatorType: "lorem", resolvedKey: "genericText", outputMask: "" };
+    }
   }
 
-  function buildFieldHintText(field) {
-    return [
-      field.id,
-      field.name,
-      field.placeholder,
-      field.labelText,
-      field.ariaLabel,
-      field.ariaLabelledbyText
-    ]
-      .map((part) => normalizeForHint(part))
-      .filter(Boolean)
-      .join(" ");
+  function suggestGeneratorForCapturedField(fieldMetadata, mode = "single") {
+    const engine = globalThis.ChaosFillGeneratorSuggestion;
+    if (!engine || typeof engine.suggestGeneratorForCapturedField !== "function") {
+      return {
+        generator: "genericText",
+        confidence: "low",
+        reason: "Suggestion engine unavailable"
+      };
+    }
+
+    return engine.suggestGeneratorForCapturedField(fieldMetadata, mode);
   }
 
   function pickRuleMatch(field) {
@@ -237,50 +248,29 @@
     };
   }
 
-  function guessGenerator(field) {
-    const searchText = buildFieldHintText(field);
-
-    const fieldType = safeString(field.type).toLowerCase();
-    const tagName = safeString(field.tagName).toLowerCase();
-
-    if (VAT_HINT_REGEX.test(searchText)) return { type: "vatId", outputMask: "DE#########", resolvedKey: "vatId" };
-    if (fieldType === "email" || EMAIL_HINT_REGEX.test(searchText)) return { type: "email", outputMask: "", resolvedKey: "email" };
-    if (fieldType === "tel" || PHONE_HINT_REGEX.test(searchText)) return { type: "phone", outputMask: "", resolvedKey: "phone" };
-    if (fieldType === "number" || NUMBER_HINT_REGEX.test(searchText)) return { type: "number", outputMask: "", resolvedKey: "number" };
-    if (fieldType === "date") return { type: "date", outputMask: "", resolvedKey: "date" };
-    if (fieldType === "datetime-local") return { type: "datetime-local", outputMask: "", resolvedKey: "datetime-local" };
-    if (fieldType === "password" || /\b(password|passcode)\b/.test(searchText)) return { type: "password", outputMask: "", resolvedKey: "password" };
-    if (IBAN_HINT_REGEX.test(searchText)) return { type: "iban", outputMask: "", resolvedKey: "iban" };
-    if (BIC_HINT_REGEX.test(searchText)) return { type: "bic", outputMask: "", resolvedKey: "bic" };
-    if (FIRST_NAME_HINT_REGEX.test(searchText)) return { type: "firstName", outputMask: "", resolvedKey: "firstName" };
-    if (LAST_NAME_HINT_REGEX.test(searchText)) return { type: "lastName", outputMask: "", resolvedKey: "lastName" };
-    if (COMPANY_HINT_REGEX.test(searchText)) return { type: "company", outputMask: "", resolvedKey: "company" };
-    if (STREET_HINT_REGEX.test(searchText)) return { type: "street", outputMask: "", resolvedKey: "street" };
-    if (CITY_HINT_REGEX.test(searchText)) return { type: "city", outputMask: "", resolvedKey: "city" };
-    if (ZIP_HINT_REGEX.test(searchText)) return { type: "zip", outputMask: "", resolvedKey: "zip" };
-    if (COUNTRY_HINT_REGEX.test(searchText)) return { type: "country", outputMask: "", resolvedKey: "country" };
-    if (FULL_NAME_HINT_REGEX.test(searchText)) return { type: "fullName", outputMask: "", resolvedKey: "fullName" };
-    if (tagName === "textarea") return { type: "lorem", outputMask: "", resolvedKey: "lorem" };
-
-    return { type: "lorem", outputMask: "", resolvedKey: "lorem" };
-  }
-
-  function buildRuleFromField(field) {
+  function buildRuleFromField(field, mode = "single") {
     const match = pickRuleMatch(field);
     if (!match) return null;
 
-    const generatorInfo = guessGenerator(field);
+    const suggestion = suggestGeneratorForCapturedField(field, mode);
+    const mappedSuggestion = mapSuggestedIntentToRule(suggestion.generator);
     const titleSource = safeString(field.labelText)
       || safeString(field.name)
       || safeString(field.id)
       || safeString(field.placeholder)
       || "Field Rule";
 
+    console.log("GENERATOR_SUGGESTION", {
+      mode,
+      field,
+      result: suggestion
+    });
+
     return {
       id: globalThis.ChaosFillStorage.createRuleId(),
       title: `Field: ${titleSource.slice(0, 42)}`,
       generator: {
-        type: generatorInfo.type,
+        type: mappedSuggestion.generatorType,
         items: []
       },
       match: {
@@ -288,8 +278,11 @@
         target: match.target,
         pattern: match.pattern
       },
-      outputMask: generatorInfo.outputMask,
-      resolvedKey: generatorInfo.resolvedKey,
+      outputMask: mappedSuggestion.outputMask,
+      resolvedKey: mappedSuggestion.resolvedKey,
+      suggestionConfidence: suggestion.confidence,
+      suggestionReason: suggestion.reason,
+      suggestedGenerator: suggestion.generator,
       overrideEnabled: false,
       overrideValue: "",
       domainRegex: "",
@@ -531,7 +524,7 @@
       return;
     }
 
-    const newRule = buildRuleFromField(result.response.field);
+    const newRule = buildRuleFromField(result.response.field, "single");
     const hostname = resolveProfileHostnameForTab(tab, result.response?.page?.hostname);
     await appendDomainRulesAndOpenOptions(hostname, [newRule]);
   }
@@ -542,7 +535,7 @@
       return;
     }
 
-    const rules = result.response.fields.map((field) => buildRuleFromField(field)).filter(Boolean);
+    const rules = result.response.fields.map((field) => buildRuleFromField(field, "bulk")).filter(Boolean);
     const hostname = resolveProfileHostnameForTab(tab, result.response?.page?.hostname);
     await appendDomainRulesAndOpenOptions(hostname, rules);
   }

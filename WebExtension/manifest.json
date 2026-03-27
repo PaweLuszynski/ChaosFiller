@@ -19,6 +19,7 @@
     "scripts": [
       "storage.js",
       "rules.js",
+      "generatorSuggestion.js",
       "background.js"
       ],
     "persistent": false

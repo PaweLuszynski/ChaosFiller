@@ -158,6 +158,27 @@
     return uniqueTexts(parts).join(" ");
   }
 
+  function getNearbyText(element) {
+    const parts = [];
+
+    const pushText = (node) => {
+      if (!node || !(node instanceof Element)) return;
+      if (node.matches("input,textarea,select,button,script,style")) return;
+      parts.push(node.textContent || "");
+    };
+
+    pushText(element.previousElementSibling);
+    pushText(element.nextElementSibling);
+
+    const parent = element.parentElement;
+    if (parent) {
+      pushText(parent.previousElementSibling);
+      pushText(parent.nextElementSibling);
+    }
+
+    return uniqueTexts(parts).join(" ").slice(0, 240);
+  }
+
   function getFieldMetadata(element) {
     const labels = getLabelTexts(element);
     return {
@@ -170,7 +191,8 @@
       className: element.className || "",
       labelText: labels.join(" "),
       ariaLabel: element.getAttribute("aria-label") || "",
-      ariaLabelledbyText: getAriaLabelledbyText(element)
+      ariaLabelledbyText: getAriaLabelledbyText(element),
+      nearbyText: getNearbyText(element)
     };
   }
 
