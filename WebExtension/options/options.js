@@ -28,7 +28,8 @@
     expandedDomains: new Set(),
     activeTarget: "section-general",
     fixedRows: {},
-    toastTimer: null
+    toastTimer: null,
+    renderMainQueued: false
   };
 
   const TOOLTIP_TEXT = {
@@ -68,6 +69,15 @@
   };
 
   let appState = null;
+
+  function optionsDebug(message, payload = {}) {
+    try {
+      // Temporary diagnostic logging for WebKit select-crash investigation.
+      console.log(message, payload);
+    } catch (_error) {
+      // Ignore logging failures.
+    }
+  }
 
   function $(id) {
     return document.getElementById(id);
@@ -609,7 +619,9 @@
     `;
   }
 
-  function renderMainContent() {
+  function renderMainContent(reason = "direct") {
+    optionsDebug("OPTIONS_RENDER start", { section: uiState.activeTarget, reason });
+
     let html = "";
     if (uiState.activeTarget === "section-general") {
       html = renderGeneralPanel();
@@ -634,11 +646,30 @@
     }
 
     $("mainContent").innerHTML = html;
+    optionsDebug("OPTIONS_RENDER end", { section: uiState.activeTarget, reason });
   }
 
   function render() {
     renderSidebar();
     renderMainContent();
+  }
+
+  function scheduleMainContentRender(reason = "deferred") {
+    if (uiState.renderMainQueued) return;
+    uiState.renderMainQueued = true;
+
+    const flush = () => {
+      uiState.renderMainQueued = false;
+      renderMainContent(reason);
+    };
+
+    setTimeout(() => {
+      if (globalThis.requestAnimationFrame) {
+        globalThis.requestAnimationFrame(flush);
+      } else {
+        flush();
+      }
+    }, 0);
   }
 
   function findDomainForTarget(targetId) {
@@ -860,14 +891,30 @@
       const domainKey = target.dataset.domain;
       const ruleId = target.dataset.ruleId;
       const field = target.dataset.field;
+      optionsDebug("OPTIONS_CHANGE start", {
+        field,
+        scope,
+        domainKey,
+        ruleId,
+        eventType: event.type,
+        tagName: target.tagName
+      });
       const list = getRuleList(scope, domainKey);
       const rule = list.find((item) => item.id === ruleId);
       if (!rule) return;
 
       setRuleField(rule, field, target.type === "checkbox" ? target.checked : target.value, target.type === "checkbox");
+      optionsDebug("OPTIONS_CHANGE state-updated", {
+        field,
+        scope,
+        domainKey,
+        ruleId,
+        generatorType: rule?.generator?.type || "",
+        overrideEnabled: Boolean(ruleOverrideEnabled(rule))
+      });
 
       if (field === "generator.type" || field === "overrideEnabled") {
-        renderMainContent();
+        scheduleMainContentRender(`rule-field:${field}`);
       }
       return;
     }
