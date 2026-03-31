@@ -11,6 +11,7 @@
   const MENU_FILL_FORM = "chaos-fill-fill-form";
   const MENU_ADD_FIELD_TO_CONFIG = "chaos-fill-add-field-to-config";
   const MENU_ADD_ALL_FIELDS_TO_CONFIG = "chaos-fill-add-all-fields-to-config";
+  const MENU_OPEN_SETTINGS = "chaos-fill-open-settings";
 
   const runtimeSessions = new Map();
   // LEGACY GENERATOR SUGGESTION (DEPRECATED)
@@ -98,6 +99,12 @@
 
     return new Promise((resolve) => {
       api.contextMenus.removeAll(() => {
+        api.contextMenus.create({
+          id: MENU_OPEN_SETTINGS,
+          title: "Open ChaosFill Settings",
+          contexts: ["browser_action"]
+        });
+
         if (settings.contextMenuEnabled === false) {
           debugLog("context menu disabled in settings");
           resolve();
@@ -587,8 +594,14 @@
   debugLog("Toolbar click handler registered");
 
   api.contextMenus.onClicked.addListener((info, tab) => {
+    debugLog("contextMenus.onClicked", { menuItemId: info.menuItemId, frameId: info.frameId, tabId: tab?.id, tabUrl: tab?.url });
+
+    if (info.menuItemId === MENU_OPEN_SETTINGS) {
+      openOptionsPage();
+      return;
+    }
+
     if (!tab?.id) return;
-    debugLog("contextMenus.onClicked", { menuItemId: info.menuItemId, frameId: info.frameId, tabId: tab.id, tabUrl: tab.url });
 
     if (info.menuItemId === MENU_FILL_FIELD) {
       runFillCommand(tab, info.frameId, "CHAOS_FILL_FILL_CONTEXT_FIELD");

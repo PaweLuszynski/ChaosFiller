@@ -881,7 +881,18 @@
       domain.updatedAt = Date.now();
 
       if (field === "label") {
-        render();
+        optionsDebug("OPTIONS_INPUT start", {
+          field: "displayLabel",
+          domainKey,
+          eventType: event.type,
+          value: domain.label
+        });
+
+        // Avoid replacing main content while user is typing in Display Label.
+        // Keep typing/focus stable and update sidebar label when edit is committed.
+        if (event.type === "change") {
+          renderSidebar();
+        }
       }
       return;
     }
