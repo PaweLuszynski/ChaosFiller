@@ -197,6 +197,7 @@
     const toastMessage = $("toastMessage");
     if (!toast || !toastMessage) return;
 
+    optionsDebug("TOAST_SHOW", { message: String(message || ""), isError: Boolean(isError) });
     toastMessage.textContent = message;
     toast.hidden = false;
     toast.classList.add("is-visible");
@@ -206,11 +207,11 @@
       clearTimeout(uiState.toastTimer);
     }
     uiState.toastTimer = setTimeout(() => {
-      hideStatus();
-    }, 5000);
+      hideStatus("timeout");
+    }, 2500);
   }
 
-  function hideStatus() {
+  function hideStatus(reason = "manual") {
     const toast = $("toast");
     if (!toast) return;
 
@@ -219,6 +220,7 @@
       uiState.toastTimer = null;
     }
 
+    optionsDebug("TOAST_HIDE", { reason });
     toast.classList.remove("is-visible");
     toast.hidden = true;
   }
@@ -1187,8 +1189,8 @@
       }
     });
 
-    $("toastClose").addEventListener("click", () => {
-      hideStatus();
+    $("toast").addEventListener("click", () => {
+      hideStatus("click");
     });
 
     render();
