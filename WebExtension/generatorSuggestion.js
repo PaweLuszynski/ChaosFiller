@@ -18,6 +18,18 @@
     { id: "stage5", sources: ["type"], allowPartial: false }
   ];
 
+  const BULK_SAFE_MEDIUM_GENERATORS = new Set([
+    "firstName",
+    "lastName",
+    "email",
+    "phone",
+    "city",
+    "postalCode",
+    "country",
+    "streetAddress1",
+    "streetAddress2"
+  ]);
+
   const INTENTS = [
     {
       generator: "firstName",
@@ -105,6 +117,34 @@
     return String(value || "").trim();
   }
 
+  function shorten(value, max = 140) {
+    const text = safeString(value);
+    if (text.length <= max) return text;
+    return `${text.slice(0, max - 1)}…`;
+  }
+
+  function fieldSummary(fieldMetadata) {
+    return {
+      name: shorten(fieldMetadata?.name),
+      id: shorten(fieldMetadata?.id),
+      type: shorten(fieldMetadata?.type),
+      tagName: shorten(fieldMetadata?.tagName),
+      labelText: shorten(fieldMetadata?.labelText),
+      placeholder: shorten(fieldMetadata?.placeholder),
+      nearbyText: shorten(fieldMetadata?.nearbyText),
+      ariaLabel: shorten(fieldMetadata?.ariaLabel),
+      ariaLabelledbyText: shorten(fieldMetadata?.ariaLabelledbyText)
+    };
+  }
+
+  function logSuggestion(tag, payload) {
+    try {
+      console.log(tag, JSON.stringify(payload));
+    } catch (_error) {
+      console.log(tag, payload);
+    }
+  }
+
   function normalizeText(value) {
     return safeString(value)
       .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
@@ -116,10 +156,26 @@
       .trim();
   }
 
+  function normalizeTokenForMatching(token) {
+    const raw = safeString(token);
+    if (!raw) return "";
+
+    // Preserve short numeric tokens (1/2) to support address line detection,
+    // but drop long numeric-only noise.
+    if (/^\d+$/.test(raw)) {
+      return raw.length <= 2 ? raw : "";
+    }
+
+    return raw
+      .replace(/^\d{3,}/, "")
+      .replace(/\d{4,}$/, "")
+      .trim();
+  }
+
   function tokenize(value) {
     return normalizeText(value)
       .split(" ")
-      .map((token) => token.replace(/^\d+/, "").replace(/\d+$/, "").trim())
+      .map((token) => normalizeTokenForMatching(token))
       .filter(Boolean);
   }
 
@@ -197,6 +253,10 @@
       nearbyText: safeString(fieldMetadata?.nearbyText),
       type: inputType === "datetime-local" ? "date" : inputType
     };
+  }
+
+  function buildSemanticSources(fieldMetadata) {
+    return buildSources(fieldMetadata);
   }
 
   function applyTypeStage(entries, sources) {
@@ -302,6 +362,62 @@
     };
   }
 
+  function summarizeEntries(entries) {
+    return entries
+      .slice()
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 3)
+      .map((entry) => ({
+        generator: entry.generator,
+        source: entry.source,
+        detail: entry.detail,
+        level: entry.level,
+        score: entry.score
+      }));
+  }
+
+  function topEntryForWinner(winner) {
+    return winner?.entries
+      ?.slice()
+      .sort((a, b) => b.score - a.score)?.[0] || null;
+  }
+
+  function isClearWinner(winner, runnerUp) {
+    const winnerScore = Number(winner?.score || 0);
+    const runnerScore = Number(runnerUp?.score || 0);
+    return winnerScore - runnerScore >= 15;
+  }
+
+  function isBulkSafeMediumMatch(stageId, winner, runnerUp) {
+    if (!winner || !BULK_SAFE_MEDIUM_GENERATORS.has(winner.generator)) {
+      return false;
+    }
+
+    if (!["stage1", "stage2", "stage4"].includes(stageId)) {
+      return false;
+    }
+
+    if (!isClearWinner(winner, runnerUp)) {
+      return false;
+    }
+
+    const topEntry = topEntryForWinner(winner);
+    if (!topEntry) return false;
+
+    if (topEntry.level === "strong" && ["label", "ariaLabel", "ariaLabelledby", "placeholder", "nearbyText", "name"].includes(topEntry.source)) {
+      return true;
+    }
+
+    if (topEntry.source === "name" && topEntry.level === "partial") {
+      const detail = String(topEntry.detail || "");
+      const hasMultiTokenHint = /\btokens\s+'[^']+\s+[^']+'/.test(detail);
+      const addressLike = ["city", "postalCode", "country", "streetAddress1", "streetAddress2"].includes(winner.generator);
+      return hasMultiTokenHint || addressLike;
+    }
+
+    return false;
+  }
+
   function selectFromStage(stageId, sources, allowPartial) {
     const entries = [];
 
@@ -336,7 +452,11 @@
 
   function suggestGeneratorForCapturedField(fieldMetadata, mode = "single") {
     const normalizedMode = mode === "bulk" ? "bulk" : "single";
-    const sources = buildSources(fieldMetadata);
+    const sources = buildSemanticSources(fieldMetadata);
+    if (normalizedMode === "bulk") {
+      logSuggestion("GENERATOR_FIELD_SUMMARY", fieldSummary(fieldMetadata));
+      logSuggestion("GENERATOR_SOURCES", sources);
+    }
 
     for (const stage of STAGE_ORDER) {
       const entries = selectFromStage(stage.id, sources, stage.allowPartial);
@@ -352,23 +472,60 @@
         confidence = boostWithNearbySupport(confidence, winner.generator, sources);
       }
       const reason = bestReason(winner);
+      const rawSuggestion = {
+        generator: winner.generator,
+        confidence,
+        reason,
+        stage: stage.id
+      };
+      logSuggestion("GENERATOR_RAW_SUGGESTION", rawSuggestion);
+      logSuggestion("CONFIDENCE_CHECK", {
+        mode: normalizedMode,
+        stage: stage.id,
+        confidence,
+        winner: winner.generator,
+        winnerScore: winner.score,
+        runnerUp: runnerUp?.generator || null,
+        runnerUpScore: runnerUp?.score || 0,
+        topMatches: summarizeEntries(winner.entries)
+      });
 
-      if (normalizedMode === "bulk" && confidence !== "high") {
-        return fallbackResult(`Bulk mode requires high confidence (got ${confidence})`);
+      const mediumIsSafeInBulk = confidence === "medium" && isBulkSafeMediumMatch(stage.id, winner, runnerUp);
+      const bulkAccepts = confidence === "high" || mediumIsSafeInBulk;
+      if (normalizedMode === "bulk" && !bulkAccepts) {
+        const rejected = fallbackResult(`Bulk mode confidence rejected at ${stage.id} (${confidence})`);
+        logSuggestion("BULK_CONFIDENCE_REJECT", {
+          mode: normalizedMode,
+          stage: stage.id,
+          confidence,
+          winner: winner.generator,
+          reason,
+          mediumSafeCandidate: BULK_SAFE_MEDIUM_GENERATORS.has(winner.generator),
+          clearWinner: isClearWinner(winner, runnerUp),
+          topEntry: topEntryForWinner(winner)
+        });
+        logSuggestion("GENERATOR_FINAL_SUGGESTION", rejected);
+        return rejected;
       }
 
       if (normalizedMode === "single" && confidence === "low") {
-        return fallbackResult("Low-confidence suggestion in single mode");
+        const rejected = fallbackResult("Low-confidence suggestion in single mode");
+        logSuggestion("GENERATOR_FINAL_SUGGESTION", rejected);
+        return rejected;
       }
 
-      return {
+      const accepted = {
         generator: winner.generator,
         confidence,
         reason
       };
+      logSuggestion("GENERATOR_FINAL_SUGGESTION", accepted);
+      return accepted;
     }
 
-    return fallbackResult("No semantic match found");
+    const noMatch = fallbackResult("No semantic match found");
+    logSuggestion("GENERATOR_FINAL_SUGGESTION", noMatch);
+    return noMatch;
   }
 
   globalThis.ChaosFillGeneratorSuggestion = {

@@ -46,6 +46,26 @@
     return String(value || "").trim();
   }
 
+  function shorten(value, max = 140) {
+    const text = safeString(value);
+    if (text.length <= max) return text;
+    return `${text.slice(0, max - 1)}…`;
+  }
+
+  function fieldSummary(field) {
+    return {
+      name: shorten(field?.name),
+      id: shorten(field?.id),
+      type: shorten(field?.type),
+      tagName: shorten(field?.tagName),
+      labelText: shorten(field?.labelText),
+      placeholder: shorten(field?.placeholder),
+      nearbyText: shorten(field?.nearbyText),
+      ariaLabel: shorten(field?.ariaLabel),
+      ariaLabelledbyText: shorten(field?.ariaLabelledbyText)
+    };
+  }
+
   function extractHostname(urlLike) {
     const raw = safeString(urlLike);
     if (!raw) return "";
@@ -193,6 +213,7 @@
 
   function suggestGeneratorForCapturedField(fieldMetadata, mode = "single") {
     const engine = globalThis.ChaosFillGeneratorSuggestion;
+    console.log("GENERATOR_ENGINE", engine);
     if (!engine || typeof engine.suggestGeneratorForCapturedField !== "function") {
       return {
         generator: "genericText",
@@ -202,6 +223,39 @@
     }
 
     return engine.suggestGeneratorForCapturedField(fieldMetadata, mode);
+  }
+
+  function applyTypeFallbackToSuggestion(field, suggestion) {
+    const suggested = suggestion && typeof suggestion === "object" ? suggestion : {
+      generator: "genericText",
+      confidence: "low",
+      reason: "Missing suggestion"
+    };
+
+    if (suggested.generator !== "genericText") {
+      return { ...suggested, fallbackApplied: false };
+    }
+
+    const type = safeString(field?.type).toLowerCase();
+    const fallbackByType = {
+      email: "email",
+      tel: "phone",
+      password: "password",
+      date: "date",
+      "datetime-local": "date"
+    };
+    const overrideGenerator = fallbackByType[type];
+    if (!overrideGenerator) {
+      return { ...suggested, fallbackApplied: false };
+    }
+
+    return {
+      ...suggested,
+      generator: overrideGenerator,
+      confidence: suggested.confidence === "low" ? "medium" : suggested.confidence,
+      reason: `${safeString(suggested.reason) || "genericText"}; type fallback '${type}' -> '${overrideGenerator}'`,
+      fallbackApplied: true
+    };
   }
 
   function pickRuleMatch(field) {
@@ -259,8 +313,16 @@
     const match = pickRuleMatch(field);
     if (!match) return null;
 
-    const suggestion = suggestGeneratorForCapturedField(field, mode);
+    console.log("GENERATOR_INPUT", { mode, field: fieldSummary(field) });
+    const rawSuggestion = suggestGeneratorForCapturedField(field, mode);
+    const suggestion = applyTypeFallbackToSuggestion(field, rawSuggestion);
+    console.log("GENERATOR_OUTPUT", { mode, rawSuggestion, suggestion });
     const mappedSuggestion = mapSuggestedIntentToRule(suggestion.generator);
+    console.log("GENERATOR_MAPPING", {
+      mode,
+      suggestedGenerator: suggestion.generator,
+      mappedSuggestion
+    });
     const titleSource = safeString(field.labelText)
       || safeString(field.name)
       || safeString(field.id)
@@ -269,7 +331,7 @@
 
     console.log("GENERATOR_SUGGESTION", {
       mode,
-      field,
+      field: fieldSummary(field),
       result: suggestion
     });
 

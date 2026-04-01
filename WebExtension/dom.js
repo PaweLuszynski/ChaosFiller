@@ -170,13 +170,18 @@
     pushText(element.previousElementSibling);
     pushText(element.nextElementSibling);
 
-    const parent = element.parentElement;
-    if (parent) {
-      pushText(parent.previousElementSibling);
-      pushText(parent.nextElementSibling);
+    // Walk up a few ancestor levels and inspect immediate sibling blocks.
+    // This helps row/column form layouts where label text sits in a neighbor column.
+    let cursor = element.parentElement;
+    let depth = 0;
+    while (cursor && depth < 3) {
+      pushText(cursor.previousElementSibling);
+      pushText(cursor.nextElementSibling);
+      cursor = cursor.parentElement;
+      depth += 1;
     }
 
-    return uniqueTexts(parts).join(" ").slice(0, 240);
+    return uniqueTexts(parts).join(" ").slice(0, 320);
   }
 
   function getFieldMetadata(element) {
