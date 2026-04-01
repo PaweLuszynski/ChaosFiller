@@ -295,6 +295,7 @@ textarea {
   gap: 10px;
   box-shadow: 0 8px 24px rgba(20, 37, 63, 0.12);
   z-index: 20;
+  cursor: pointer;
 }
 
 .toast.is-visible {
@@ -309,10 +310,6 @@ textarea {
   border-color: #ebbbbb;
   background: var(--danger-soft);
   color: var(--danger);
-}
-
-.toast-close {
-  margin-left: auto;
 }
 
 .section-anchor {
