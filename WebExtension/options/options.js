@@ -23,6 +23,29 @@
     "randomized-list"
   ];
 
+  const DEFAULT_RULE_MATCH_TARGETS = [
+    "any",
+    "id",
+    "name",
+    "type",
+    "placeholder",
+    "label",
+    "ariaLabel",
+    "ariaLabelledby",
+    "class"
+  ];
+
+  const DEV_MODE_QUERY_KEY = "dev";
+  const DEV_MODE_ENABLED = (() => {
+    try {
+      const params = new URLSearchParams(globalThis.location.search || "");
+      const raw = String(params.get(DEV_MODE_QUERY_KEY) || "").toLowerCase();
+      return raw === "true" || raw === "1";
+    } catch (_error) {
+      return false;
+    }
+  })();
+
   const uiState = {
     domainsExpanded: false,
     expandedDomains: new Set(),
@@ -69,6 +92,363 @@
   };
 
   let appState = null;
+  let optionsStorage = null;
+
+  function fallbackCreateRuleId() {
+    return `mock-rule-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  }
+
+  function fallbackNormalizeDomain(hostname) {
+    return String(hostname || "")
+      .trim()
+      .toLowerCase()
+      .replace(/^https?:\/\//, "")
+      .replace(/\/.*$/, "")
+      .replace(/:\d+$/, "")
+      .replace(/^www\./, "");
+  }
+
+  function getStorageRuleMatchTargets() {
+    const targets = globalThis.ChaosFillStorage?.RULE_MATCH_TARGETS;
+    if (Array.isArray(targets) && targets.length > 0) {
+      return targets.slice();
+    }
+    return DEFAULT_RULE_MATCH_TARGETS.slice();
+  }
+
+  function buildMockOptionsState() {
+    const now = Date.now();
+    const oneHour = 60 * 60 * 1000;
+
+    return {
+      version: 7,
+      settings: {
+        dataMode: "session",
+        personaFallbackToGenerated: true,
+        triggerEvents: true,
+        contextMenuEnabled: true,
+        ignoreHiddenInvisible: true,
+        ignoreExistingContent: false,
+        ignoreMatchTokens: ["captcha", "otp", "verification code"],
+        confirmationTokens: ["confirm", "reenter", "repeat"],
+        agreeTokens: ["agree", "terms", "conditions"],
+        ignoredDomains: ["(^|\\.)payments\\.example$", "/checkout/"],
+        sensitiveDenylistEnabled: true,
+        debugMatching: false,
+        useAttributes: {
+          id: true,
+          name: true,
+          label: true,
+          ariaLabel: true,
+          ariaLabelledby: true,
+          placeholder: true,
+          class: false,
+          type: true
+        },
+        password: {
+          mode: "random",
+          fixedValue: "P@$$w0rd!",
+          randomLength: 18
+        },
+        fallback: {
+          maxLength: 42,
+          loremMaxWords: 12,
+          emailDomain: "mail.dev-example.test",
+          phoneFormat: "+1##########",
+          dateStart: "1980-01-01",
+          dateEnd: "2035-12-31",
+          checkboxDefault: "random",
+          radioStrategy: "firstEnabled"
+        }
+      },
+      globalRules: [
+        {
+          id: "mock-global-email",
+          title: "Global Email",
+          generator: { type: "email", items: [] },
+          match: { kind: "contains", pattern: "email; e-mail", target: "any" },
+          outputMask: "",
+          domainRegex: "",
+          resolvedKey: "email",
+          overrideEnabled: false,
+          overrideValue: "",
+          enabled: true
+        },
+        {
+          id: "mock-global-phone",
+          title: "Global Phone",
+          generator: { type: "phone", items: [] },
+          match: { kind: "regex", pattern: "(phone|mobile|tel)", target: "any" },
+          outputMask: "",
+          domainRegex: "",
+          resolvedKey: "phone",
+          overrideEnabled: false,
+          overrideValue: "",
+          enabled: true
+        },
+        {
+          id: "mock-global-notes",
+          title: "Global Notes",
+          generator: { type: "lorem", items: [] },
+          match: { kind: "contains", pattern: "notes; comment; additional", target: "any" },
+          outputMask: "",
+          domainRegex: "",
+          resolvedKey: "genericText",
+          overrideEnabled: false,
+          overrideValue: "",
+          enabled: true
+        }
+      ],
+      domains: {
+        "staging.shop.example": {
+          id: "staging.shop.example",
+          label: "Shop Staging",
+          enabled: true,
+          createdAt: now - (72 * oneHour),
+          updatedAt: now - (2 * oneHour),
+          dataMode: "session",
+          rules: [
+            {
+              id: "mock-shop-firstname",
+              title: "Checkout First Name",
+              generator: { type: "firstName", items: [] },
+              match: { kind: "contains", pattern: "first name; given name", target: "any" },
+              outputMask: "",
+              domainRegex: "",
+              resolvedKey: "firstName",
+              overrideEnabled: false,
+              overrideValue: "",
+              enabled: true
+            },
+            {
+              id: "mock-shop-city",
+              title: "Shipping City",
+              generator: { type: "city", items: [] },
+              match: { kind: "contains", pattern: "city; town", target: "any" },
+              outputMask: "",
+              domainRegex: "",
+              resolvedKey: "city",
+              overrideEnabled: false,
+              overrideValue: "",
+              enabled: true
+            },
+            {
+              id: "mock-shop-postcode",
+              title: "Postal Code",
+              generator: { type: "zip", items: [] },
+              match: { kind: "regex", pattern: "(postal|zip|post\\s*code)", target: "any" },
+              outputMask: "",
+              domainRegex: "",
+              resolvedKey: "postalCode",
+              overrideEnabled: false,
+              overrideValue: "",
+              enabled: true
+            }
+          ],
+          fixedValues: {
+            "company.name": "ChaosFill QA Ltd",
+            "address.country": "United States"
+          },
+          ignoreTokens: ["coupon"],
+          notes: "Main staging checkout profile for UI review."
+        },
+        "app.accounts.example": {
+          id: "app.accounts.example",
+          label: "Account Portal",
+          enabled: false,
+          createdAt: now - (120 * oneHour),
+          updatedAt: now - (40 * oneHour),
+          dataMode: "inherit",
+          rules: [
+            {
+              id: "mock-account-email",
+              title: "Work Email",
+              generator: { type: "email", items: [] },
+              match: { kind: "contains", pattern: "work email; corporate email", target: "any" },
+              outputMask: "",
+              domainRegex: "",
+              resolvedKey: "email",
+              overrideEnabled: false,
+              overrideValue: "",
+              enabled: true
+            },
+            {
+              id: "mock-account-phone",
+              title: "Contact Number",
+              generator: { type: "phone", items: [] },
+              match: { kind: "contains", pattern: "phone number; mobile", target: "any" },
+              outputMask: "",
+              domainRegex: "",
+              resolvedKey: "phone",
+              overrideEnabled: true,
+              overrideValue: "+12025550199",
+              enabled: true
+            },
+            {
+              id: "mock-account-bio",
+              title: "Bio / Notes",
+              generator: { type: "lorem", items: [] },
+              match: { kind: "contains", pattern: "bio; about me; notes", target: "any" },
+              outputMask: "",
+              domainRegex: "",
+              resolvedKey: "profile.bio",
+              overrideEnabled: false,
+              overrideValue: "",
+              enabled: false
+            }
+          ],
+          fixedValues: {
+            email: "qa.user@app.accounts.example"
+          },
+          ignoreTokens: [],
+          notes: "Example disabled profile for QA checks."
+        },
+        "forms.partner-network.test": {
+          id: "forms.partner-network.test",
+          label: "Partner Intake Forms",
+          enabled: true,
+          createdAt: now - (200 * oneHour),
+          updatedAt: now - (6 * oneHour),
+          dataMode: "persona",
+          rules: [
+            {
+              id: "mock-partner-contact",
+              title: "Primary Contact Name",
+              generator: { type: "fullName", items: [] },
+              match: { kind: "contains", pattern: "contact name; full name", target: "any" },
+              outputMask: "",
+              domainRegex: "",
+              resolvedKey: "fullName",
+              overrideEnabled: false,
+              overrideValue: "",
+              enabled: true
+            },
+            {
+              id: "mock-partner-city",
+              title: "Office City",
+              generator: { type: "city", items: [] },
+              match: { kind: "contains", pattern: "office city; city", target: "any" },
+              outputMask: "",
+              domainRegex: "",
+              resolvedKey: "city",
+              overrideEnabled: false,
+              overrideValue: "",
+              enabled: true
+            },
+            {
+              id: "mock-partner-randomized",
+              title: "Department",
+              generator: { type: "randomized-list", items: ["Operations", "Finance", "Support", "Legal"] },
+              match: { kind: "contains", pattern: "department; team", target: "any" },
+              outputMask: "",
+              domainRegex: "",
+              resolvedKey: "department",
+              overrideEnabled: false,
+              overrideValue: "",
+              enabled: true
+            }
+          ],
+          fixedValues: {
+            firstName: "Alex",
+            lastName: "Taylor",
+            company: "Partner Network GmbH"
+          },
+          ignoreTokens: ["invoice"],
+          notes: "Persona-style profile with mixed generator types."
+        }
+      }
+    };
+  }
+
+  function createDevStorageAdapter() {
+    let state = buildMockOptionsState();
+
+    const normalizeState = (value) => {
+      if (typeof globalThis.ChaosFillStorage?.normalizeState === "function") {
+        return globalThis.ChaosFillStorage.normalizeState(value);
+      }
+      return deepClone(value);
+    };
+
+    return {
+      createRuleId() {
+        if (typeof globalThis.ChaosFillStorage?.createRuleId === "function") {
+          return globalThis.ChaosFillStorage.createRuleId();
+        }
+        return fallbackCreateRuleId();
+      },
+      normalizeDomain(hostname) {
+        if (typeof globalThis.ChaosFillStorage?.normalizeDomain === "function") {
+          return globalThis.ChaosFillStorage.normalizeDomain(hostname);
+        }
+        return fallbackNormalizeDomain(hostname);
+      },
+      get ruleMatchTargets() {
+        return getStorageRuleMatchTargets();
+      },
+      async getState() {
+        return deepClone(state);
+      },
+      async saveState(nextState) {
+        state = normalizeState(nextState);
+        return deepClone(state);
+      },
+      async resetState() {
+        state = buildMockOptionsState();
+        return deepClone(state);
+      },
+      async exportState() {
+        return JSON.stringify(state, null, 2);
+      },
+      async importState(jsonText) {
+        const parsed = JSON.parse(jsonText);
+        state = normalizeState(parsed);
+        return deepClone(state);
+      }
+    };
+  }
+
+  function createRuntimeStorageAdapter() {
+    const storage = globalThis.ChaosFillStorage;
+    if (!storage || typeof storage.getState !== "function") {
+      throw new Error("ChaosFillStorage is unavailable. Use options.html?dev=true for mock mode.");
+    }
+
+    return {
+      createRuleId() {
+        return storage.createRuleId();
+      },
+      normalizeDomain(hostname) {
+        return storage.normalizeDomain(hostname);
+      },
+      get ruleMatchTargets() {
+        return Array.isArray(storage.RULE_MATCH_TARGETS) ? storage.RULE_MATCH_TARGETS.slice() : DEFAULT_RULE_MATCH_TARGETS.slice();
+      },
+      getState() {
+        return storage.getState();
+      },
+      saveState(nextState) {
+        return storage.saveState(nextState);
+      },
+      resetState() {
+        return storage.resetState();
+      },
+      exportState() {
+        return storage.exportState();
+      },
+      importState(jsonText) {
+        return storage.importState(jsonText);
+      }
+    };
+  }
+
+  function getOptionsStorage() {
+    if (optionsStorage) {
+      return optionsStorage;
+    }
+    optionsStorage = DEV_MODE_ENABLED ? createDevStorageAdapter() : createRuntimeStorageAdapter();
+    return optionsStorage;
+  }
 
   function optionsDebug(message, payload = {}) {
     try {
@@ -225,6 +605,18 @@
     toast.hidden = true;
   }
 
+  function applyDevModeIndicator() {
+    if (!DEV_MODE_ENABLED) return;
+
+    const heading = document.querySelector(".topbar h1");
+    if (!heading || heading.querySelector(".dev-mode-badge")) return;
+
+    const badge = document.createElement("span");
+    badge.className = "dev-mode-badge";
+    badge.textContent = "Mock Data Mode";
+    heading.appendChild(badge);
+  }
+
   function setByPath(target, path, value) {
     const parts = String(path || "").split(".").filter(Boolean);
     if (parts.length === 0) return;
@@ -242,8 +634,9 @@
   }
 
   function createRuleTemplate() {
+    const storage = getOptionsStorage();
     return {
-      id: globalThis.ChaosFillStorage.createRuleId(),
+      id: storage.createRuleId(),
       title: "New Rule",
       generator: { type: "lorem", items: [] },
       match: { kind: "contains", pattern: "", target: "any" },
@@ -357,50 +750,64 @@
 
     const generatorType = ruleFieldValue(rule, "generator.type");
     const randomizedItems = ruleFieldValue(rule, "generator.items");
+    const enabled = ruleFieldValue(rule, "enabled");
+    const displayTitle = ruleFieldValue(rule, "title") || "Rule";
+
+    const storage = getOptionsStorage();
 
     return `
       <article class="rule-card section-anchor" id="${sectionId}">
+        <div class="rule-card-header">
+          <p class="rule-kicker">${scope === "global" ? "Global Rule" : "Domain Rule"}</p>
+          <h4 class="rule-heading">${escapeHtml(displayTitle)}</h4>
+          <div class="rule-meta">
+            <span class="rule-chip">${escapeHtml(generatorType)}</span>
+            <span class="rule-chip ${enabled ? "is-enabled" : "is-disabled"}">${enabled ? "Enabled" : "Disabled"}</span>
+          </div>
+        </div>
+
         <div class="field-grid">
-          <label>${settingLabel("Rule title", TOOLTIP_TEXT.ruleTitle, `${scope}-${domainKey}-${rule.id}-title`)}
+          <label class="rule-field-core">${settingLabel("Rule title", TOOLTIP_TEXT.ruleTitle, `${scope}-${domainKey}-${rule.id}-title`)}
             <input data-kind="rule-field" data-scope="${scope}" data-domain="${escapeHtml(domainKey)}" data-rule-id="${escapeHtml(rule.id)}" data-field="title" value="${escapeHtml(ruleFieldValue(rule, "title"))}" />
           </label>
-          <label>${settingLabel("Generator", TOOLTIP_TEXT.generator, `${scope}-${domainKey}-${rule.id}-generator`)}
+          <label class="rule-field-core">${settingLabel("Generator", TOOLTIP_TEXT.generator, `${scope}-${domainKey}-${rule.id}-generator`)}
             <select data-kind="rule-field" data-scope="${scope}" data-domain="${escapeHtml(domainKey)}" data-rule-id="${escapeHtml(rule.id)}" data-field="generator.type">
               ${GENERATOR_TYPES.map((type) => `<option value="${type}" ${generatorType === type ? "selected" : ""}>${type}</option>`).join("")}
             </select>
           </label>
-          <label>${settingLabel("Match type", TOOLTIP_TEXT.matchType, `${scope}-${domainKey}-${rule.id}-match-kind`)}
+          <label class="rule-field-core">${settingLabel("Match type", TOOLTIP_TEXT.matchType, `${scope}-${domainKey}-${rule.id}-match-kind`)}
             <select data-kind="rule-field" data-scope="${scope}" data-domain="${escapeHtml(domainKey)}" data-rule-id="${escapeHtml(rule.id)}" data-field="match.kind">
               <option value="contains" ${ruleFieldValue(rule, "match.kind") === "contains" ? "selected" : ""}>contains</option>
               <option value="equals" ${ruleFieldValue(rule, "match.kind") === "equals" ? "selected" : ""}>equals</option>
               <option value="regex" ${ruleFieldValue(rule, "match.kind") === "regex" ? "selected" : ""}>regex</option>
             </select>
           </label>
-          <label>${settingLabel("Match target", TOOLTIP_TEXT.matchTarget, `${scope}-${domainKey}-${rule.id}-match-target`)}
+          <label class="rule-field-core">${settingLabel("Match target", TOOLTIP_TEXT.matchTarget, `${scope}-${domainKey}-${rule.id}-match-target`)}
             <select data-kind="rule-field" data-scope="${scope}" data-domain="${escapeHtml(domainKey)}" data-rule-id="${escapeHtml(rule.id)}" data-field="match.target">
-              ${globalThis.ChaosFillStorage.RULE_MATCH_TARGETS.map((target) => `<option value="${target}" ${ruleFieldValue(rule, "match.target") === target ? "selected" : ""}>${target}</option>`).join("")}
+              ${storage.ruleMatchTargets.map((target) => `<option value="${target}" ${ruleFieldValue(rule, "match.target") === target ? "selected" : ""}>${target}</option>`).join("")}
             </select>
           </label>
-          <label>${settingLabel("Match pattern", TOOLTIP_TEXT.matchPattern, `${scope}-${domainKey}-${rule.id}-match-pattern`)}
+          <label class="rule-field-core">${settingLabel("Match pattern", TOOLTIP_TEXT.matchPattern, `${scope}-${domainKey}-${rule.id}-match-pattern`)}
             <input data-kind="rule-field" data-scope="${scope}" data-domain="${escapeHtml(domainKey)}" data-rule-id="${escapeHtml(rule.id)}" data-field="match.pattern" value="${escapeHtml(ruleFieldValue(rule, "match.pattern"))}" />
           </label>
-          <label>${settingLabel("Resolved key", TOOLTIP_TEXT.resolvedKey, `${scope}-${domainKey}-${rule.id}-resolved-key`)}
+          <p class="rule-subheading">Advanced Matching And Output</p>
+          <label class="rule-field-advanced">${settingLabel("Resolved key", TOOLTIP_TEXT.resolvedKey, `${scope}-${domainKey}-${rule.id}-resolved-key`)}
             <input data-kind="rule-field" data-scope="${scope}" data-domain="${escapeHtml(domainKey)}" data-rule-id="${escapeHtml(rule.id)}" data-field="resolvedKey" value="${escapeHtml(ruleFieldValue(rule, "resolvedKey"))}" />
           </label>
-          <label class="inline">
+          <label class="inline rule-field-advanced">
             <input type="checkbox" data-kind="rule-field" data-scope="${scope}" data-domain="${escapeHtml(domainKey)}" data-rule-id="${escapeHtml(rule.id)}" data-field="overrideEnabled" ${ruleFieldValue(rule, "overrideEnabled") ? "checked" : ""} />
             ${inlineSettingLabel("Enable fixed value for this rule", TOOLTIP_TEXT.fixedEnabled, `${scope}-${domainKey}-${rule.id}-fixed-enabled`)}
           </label>
-          <label>${settingLabel("Fixed value (optional)", TOOLTIP_TEXT.fixedValue, `${scope}-${domainKey}-${rule.id}-fixed-value`)}
+          <label class="rule-field-advanced">${settingLabel("Fixed value (optional)", TOOLTIP_TEXT.fixedValue, `${scope}-${domainKey}-${rule.id}-fixed-value`)}
             <input data-kind="rule-field" data-scope="${scope}" data-domain="${escapeHtml(domainKey)}" data-rule-id="${escapeHtml(rule.id)}" data-field="overrideValue" value="${escapeHtml(ruleFieldValue(rule, "overrideValue"))}" ${ruleFieldValue(rule, "overrideEnabled") ? "" : "disabled"} />
           </label>
-          <label>${settingLabel("Output mask", TOOLTIP_TEXT.outputMask, `${scope}-${domainKey}-${rule.id}-output-mask`)}
+          <label class="rule-field-advanced">${settingLabel("Output mask", TOOLTIP_TEXT.outputMask, `${scope}-${domainKey}-${rule.id}-output-mask`)}
             <input data-kind="rule-field" data-scope="${scope}" data-domain="${escapeHtml(domainKey)}" data-rule-id="${escapeHtml(rule.id)}" data-field="outputMask" value="${escapeHtml(ruleFieldValue(rule, "outputMask"))}" />
           </label>
-          <label>${settingLabel("Domain regex (optional)", TOOLTIP_TEXT.domainRegex, `${scope}-${domainKey}-${rule.id}-domain-regex`)}
+          <label class="rule-field-advanced">${settingLabel("Domain regex (optional)", TOOLTIP_TEXT.domainRegex, `${scope}-${domainKey}-${rule.id}-domain-regex`)}
             <input data-kind="rule-field" data-scope="${scope}" data-domain="${escapeHtml(domainKey)}" data-rule-id="${escapeHtml(rule.id)}" data-field="domainRegex" value="${escapeHtml(ruleFieldValue(rule, "domainRegex"))}" />
           </label>
-          <label class="inline">
+          <label class="inline rule-field-advanced">
             <input type="checkbox" data-kind="rule-field" data-scope="${scope}" data-domain="${escapeHtml(domainKey)}" data-rule-id="${escapeHtml(rule.id)}" data-field="enabled" ${ruleFieldValue(rule, "enabled") ? "checked" : ""} />
             ${inlineSettingLabel("Enabled", TOOLTIP_TEXT.ruleEnabled, `${scope}-${domainKey}-${rule.id}-enabled`)}
           </label>
@@ -415,7 +822,7 @@
         <div class="rule-actions">
           <button data-action="rule-up" data-scope="${scope}" data-domain="${escapeHtml(domainKey)}" data-rule-id="${escapeHtml(rule.id)}">Move up</button>
           <button data-action="rule-down" data-scope="${scope}" data-domain="${escapeHtml(domainKey)}" data-rule-id="${escapeHtml(rule.id)}">Move down</button>
-          <button data-action="rule-delete" data-scope="${scope}" data-domain="${escapeHtml(domainKey)}" data-rule-id="${escapeHtml(rule.id)}">Delete</button>
+          <button class="danger" data-action="rule-delete" data-scope="${scope}" data-domain="${escapeHtml(domainKey)}" data-rule-id="${escapeHtml(rule.id)}">Delete</button>
         </div>
       </article>
     `;
@@ -430,7 +837,7 @@
       <p class="sidebar-title">Navigation</p>
       <button class="nav-item ${uiState.activeTarget === "section-general" ? "is-active" : ""}" data-nav-target="section-general">General Settings</button>
       <button class="nav-item ${uiState.activeTarget === "section-global-rules" ? "is-active" : ""}" data-nav-target="section-global-rules">Global Rules</button>
-      <button class="nav-item ${uiState.activeTarget.startsWith("section-domain-") ? "is-active" : ""}" data-action="toggle-domains">Domains</button>
+      <button class="nav-item ${uiState.activeTarget.startsWith("section-domain-") ? "is-active" : ""}" data-action="toggle-domains">Domains (${domains.length})</button>
     `;
 
     if (domainsOpen) {
@@ -442,10 +849,14 @@
           const domainSectionId = sectionIdForDomain(domain.id);
           const domainExpanded = uiState.expandedDomains.has(domain.id);
           const domainRules = Array.isArray(domain.rules) ? domain.rules : [];
+          const ruleCount = domainRules.length;
+          const ruleText = `${ruleCount} rule${ruleCount === 1 ? "" : "s"}`;
+          const domainEnabled = domain.enabled !== false;
 
           html += `
-            <button class="domain-toggle ${uiState.activeTarget.startsWith(domainSectionId) ? "is-active" : ""}" data-action="toggle-domain" data-domain-key="${escapeHtml(domain.id)}">
-              ${escapeHtml(domain.label)}
+            <button class="domain-toggle ${uiState.activeTarget.startsWith(domainSectionId) ? "is-active" : ""} ${domainEnabled ? "" : "is-disabled"}" data-action="toggle-domain" data-domain-key="${escapeHtml(domain.id)}">
+              <span class="nav-primary">${escapeHtml(domain.label)}</span>
+              <span class="nav-meta">${escapeHtml(ruleText)} · ${domainEnabled ? "On" : "Off"}</span>
             </button>
           `;
 
@@ -456,9 +867,12 @@
             } else {
               for (const rule of domainRules) {
                 const ruleSectionId = sectionIdForRule("domain", domain.id, rule.id);
+                const generatorType = rule?.generator?.type || "lorem";
+                const ruleEnabled = rule.enabled !== false;
                 html += `
-                  <button class="nav-child ${uiState.activeTarget === ruleSectionId ? "is-active" : ""}" data-nav-target="${ruleSectionId}" data-domain-key="${escapeHtml(domain.id)}">
-                    ${escapeHtml(rule.title || rule.id)}
+                  <button class="nav-child ${uiState.activeTarget === ruleSectionId ? "is-active" : ""} ${ruleEnabled ? "" : "is-disabled"}" data-nav-target="${ruleSectionId}" data-domain-key="${escapeHtml(domain.id)}">
+                    <span class="nav-child-label">${escapeHtml(rule.title || rule.id)}</span>
+                    <span class="nav-child-meta">${escapeHtml(generatorType)}</span>
                   </button>
                 `;
               }
@@ -479,64 +893,79 @@
     return `
       <section class="panel section-anchor" id="section-general">
         <h2>General Settings</h2>
-        <div class="field-grid">
-          <label>${settingLabel("Global data mode", TOOLTIP_TEXT.globalDataMode, "setting-data-mode")}
-            <select data-kind="setting" data-path="dataMode">
-              <option value="random" ${settings.dataMode === "random" ? "selected" : ""}>random</option>
-              <option value="session" ${settings.dataMode === "session" ? "selected" : ""}>session</option>
-              <option value="persona" ${settings.dataMode === "persona" ? "selected" : ""}>persona</option>
-            </select>
-          </label>
-          <label class="inline">
-            <input type="checkbox" data-kind="setting" data-path="personaFallbackToGenerated" ${settings.personaFallbackToGenerated !== false ? "checked" : ""} />
-            ${inlineSettingLabel("Persona mode fallback to generated values", TOOLTIP_TEXT.personaFallback, "setting-persona-fallback")}
-          </label>
-          <label class="inline">
-            <input type="checkbox" data-kind="setting" data-path="triggerEvents" ${settings.triggerEvents !== false ? "checked" : ""} />
-            ${inlineSettingLabel("Trigger input/change events", TOOLTIP_TEXT.triggerEvents, "setting-trigger-events")}
-          </label>
-          <label class="inline">
-            <input type="checkbox" data-kind="setting" data-path="contextMenuEnabled" ${settings.contextMenuEnabled !== false ? "checked" : ""} />
-            ${inlineSettingLabel("Enable context menu", TOOLTIP_TEXT.contextMenu, "setting-context-menu")}
-          </label>
-          <label class="inline">
-            <input type="checkbox" data-kind="setting" data-path="sensitiveDenylistEnabled" ${settings.sensitiveDenylistEnabled !== false ? "checked" : ""} />
-            ${inlineSettingLabel("Sensitive denylist enabled", TOOLTIP_TEXT.sensitiveDenylist, "setting-sensitive-denylist")}
-          </label>
-          <label class="inline">
-            <input type="checkbox" data-kind="setting" data-path="ignoreHiddenInvisible" ${settings.ignoreHiddenInvisible !== false ? "checked" : ""} />
-            ${inlineSettingLabel("Ignore hidden/invisible", TOOLTIP_TEXT.ignoreHidden, "setting-ignore-hidden")}
-          </label>
-          <label class="inline">
-            <input type="checkbox" data-kind="setting" data-path="ignoreExistingContent" ${settings.ignoreExistingContent === true ? "checked" : ""} />
-            ${inlineSettingLabel("Ignore already filled fields", TOOLTIP_TEXT.ignoreExisting, "setting-ignore-existing")}
-          </label>
-          <label>${settingLabel("Password mode", TOOLTIP_TEXT.passwordMode, "setting-password-mode")}
-            <select data-kind="setting" data-path="password.mode">
-              <option value="fixed" ${settings.password?.mode === "fixed" ? "selected" : ""}>fixed</option>
-              <option value="random" ${settings.password?.mode === "random" ? "selected" : ""}>random</option>
-            </select>
-          </label>
-          <label>${settingLabel("Fixed password value", TOOLTIP_TEXT.passwordFixed, "setting-password-fixed")}
-            <input data-kind="setting" data-path="password.fixedValue" value="${escapeHtml(settings.password?.fixedValue || "")}" />
-          </label>
-          <label>${settingLabel("Random password length", TOOLTIP_TEXT.passwordLength, "setting-password-length")}
-            <input type="number" min="4" max="128" data-kind="setting" data-path="password.randomLength" value="${escapeHtml(settings.password?.randomLength || 16)}" />
-          </label>
-          <label>${settingLabel("Email domain", TOOLTIP_TEXT.emailDomain, "setting-email-domain")}
-            <input data-kind="setting" data-path="fallback.emailDomain" value="${escapeHtml(settings.fallback?.emailDomain || "example.com")}" />
-          </label>
-          <label>${settingLabel("Max fallback length", TOOLTIP_TEXT.maxLength, "setting-max-length")}
-            <input type="number" min="1" max="1024" data-kind="setting" data-path="fallback.maxLength" value="${escapeHtml(settings.fallback?.maxLength || 20)}" />
-          </label>
-          <label>${settingLabel("Lorem max words", TOOLTIP_TEXT.loremWords, "setting-lorem-words")}
-            <input type="number" min="1" max="100" data-kind="setting" data-path="fallback.loremMaxWords" value="${escapeHtml(settings.fallback?.loremMaxWords || 6)}" />
-          </label>
-        </div>
+        <section class="settings-group">
+          <h3>Behavior</h3>
+          <div class="field-grid">
+            <label>${settingLabel("Global data mode", TOOLTIP_TEXT.globalDataMode, "setting-data-mode")}
+              <select data-kind="setting" data-path="dataMode">
+                <option value="random" ${settings.dataMode === "random" ? "selected" : ""}>random</option>
+                <option value="session" ${settings.dataMode === "session" ? "selected" : ""}>session</option>
+                <option value="persona" ${settings.dataMode === "persona" ? "selected" : ""}>persona</option>
+              </select>
+            </label>
+            <label class="inline">
+              <input type="checkbox" data-kind="setting" data-path="personaFallbackToGenerated" ${settings.personaFallbackToGenerated !== false ? "checked" : ""} />
+              ${inlineSettingLabel("Persona mode fallback to generated values", TOOLTIP_TEXT.personaFallback, "setting-persona-fallback")}
+            </label>
+            <label class="inline">
+              <input type="checkbox" data-kind="setting" data-path="triggerEvents" ${settings.triggerEvents !== false ? "checked" : ""} />
+              ${inlineSettingLabel("Trigger input/change events", TOOLTIP_TEXT.triggerEvents, "setting-trigger-events")}
+            </label>
+            <label class="inline">
+              <input type="checkbox" data-kind="setting" data-path="contextMenuEnabled" ${settings.contextMenuEnabled !== false ? "checked" : ""} />
+              ${inlineSettingLabel("Enable context menu", TOOLTIP_TEXT.contextMenu, "setting-context-menu")}
+            </label>
+            <label class="inline">
+              <input type="checkbox" data-kind="setting" data-path="ignoreExistingContent" ${settings.ignoreExistingContent === true ? "checked" : ""} />
+              ${inlineSettingLabel("Ignore already filled fields", TOOLTIP_TEXT.ignoreExisting, "setting-ignore-existing")}
+            </label>
+          </div>
+        </section>
 
-        <label>${settingLabel("Ignored domains (regex per line)", TOOLTIP_TEXT.ignoredDomains, "setting-ignored-domains")}
-          <textarea data-kind="setting" data-path="ignoredDomains">${escapeHtml((settings.ignoredDomains || []).join("\n"))}</textarea>
-        </label>
+        <section class="settings-group">
+          <h3>Safety And Visibility</h3>
+          <div class="field-grid">
+            <label class="inline">
+              <input type="checkbox" data-kind="setting" data-path="sensitiveDenylistEnabled" ${settings.sensitiveDenylistEnabled !== false ? "checked" : ""} />
+              ${inlineSettingLabel("Sensitive denylist enabled", TOOLTIP_TEXT.sensitiveDenylist, "setting-sensitive-denylist")}
+            </label>
+            <label class="inline">
+              <input type="checkbox" data-kind="setting" data-path="ignoreHiddenInvisible" ${settings.ignoreHiddenInvisible !== false ? "checked" : ""} />
+              ${inlineSettingLabel("Ignore hidden/invisible", TOOLTIP_TEXT.ignoreHidden, "setting-ignore-hidden")}
+            </label>
+          </div>
+
+          <label>${settingLabel("Ignored domains (regex per line)", TOOLTIP_TEXT.ignoredDomains, "setting-ignored-domains")}
+            <textarea data-kind="setting" data-path="ignoredDomains">${escapeHtml((settings.ignoredDomains || []).join("\n"))}</textarea>
+          </label>
+        </section>
+
+        <section class="settings-group">
+          <h3>Passwords And Fallback</h3>
+          <div class="field-grid">
+            <label>${settingLabel("Password mode", TOOLTIP_TEXT.passwordMode, "setting-password-mode")}
+              <select data-kind="setting" data-path="password.mode">
+                <option value="fixed" ${settings.password?.mode === "fixed" ? "selected" : ""}>fixed</option>
+                <option value="random" ${settings.password?.mode === "random" ? "selected" : ""}>random</option>
+              </select>
+            </label>
+            <label>${settingLabel("Fixed password value", TOOLTIP_TEXT.passwordFixed, "setting-password-fixed")}
+              <input data-kind="setting" data-path="password.fixedValue" value="${escapeHtml(settings.password?.fixedValue || "")}" />
+            </label>
+            <label>${settingLabel("Random password length", TOOLTIP_TEXT.passwordLength, "setting-password-length")}
+              <input type="number" min="4" max="128" data-kind="setting" data-path="password.randomLength" value="${escapeHtml(settings.password?.randomLength || 16)}" />
+            </label>
+            <label>${settingLabel("Email domain", TOOLTIP_TEXT.emailDomain, "setting-email-domain")}
+              <input data-kind="setting" data-path="fallback.emailDomain" value="${escapeHtml(settings.fallback?.emailDomain || "example.com")}" />
+            </label>
+            <label>${settingLabel("Max fallback length", TOOLTIP_TEXT.maxLength, "setting-max-length")}
+              <input type="number" min="1" max="1024" data-kind="setting" data-path="fallback.maxLength" value="${escapeHtml(settings.fallback?.maxLength || 20)}" />
+            </label>
+            <label>${settingLabel("Lorem max words", TOOLTIP_TEXT.loremWords, "setting-lorem-words")}
+              <input type="number" min="1" max="100" data-kind="setting" data-path="fallback.loremMaxWords" value="${escapeHtml(settings.fallback?.loremMaxWords || 6)}" />
+            </label>
+          </div>
+        </section>
       </section>
     `;
   }
@@ -546,9 +975,13 @@
 
     return `
       <section class="panel section-anchor" id="section-global-rules">
-        <h2>Global Rules</h2>
-        <p class="muted">Global rules are fallback rules used when no domain-specific rule matches.</p>
-        <button data-action="add-global-rule">Add global rule</button>
+        <div class="panel-header-row">
+          <div>
+            <h2>Global Rules</h2>
+            <p class="muted">Global rules are fallback rules used when no domain-specific rule matches.</p>
+          </div>
+          <button class="primary" data-action="add-global-rule">Add global rule</button>
+        </div>
         <div class="section-stack">
           ${rules.map((rule) => renderRuleCard(rule, {
             scope: "global",
@@ -571,7 +1004,9 @@
         <h2>${escapeHtml(domain.label)}</h2>
 
         <section class="section-anchor" id="${overviewId}">
-          <h3>Domain Overview</h3>
+          <div class="panel-header-row domain-overview-header">
+            <h3>Domain Overview</h3>
+          </div>
           <div class="field-grid">
             <label class="inline">
               <input type="checkbox" data-kind="domain-field" data-domain="${escapeHtml(domain.id)}" data-field="enabled" ${domain.enabled !== false ? "checked" : ""} />
@@ -598,17 +1033,19 @@
               <input value="${escapeHtml(new Date(domain.updatedAt).toLocaleString())}" readonly />
             </label>
           </div>
-          <div class="rule-actions">
-            <button data-action="remove-domain" data-domain="${escapeHtml(domain.id)}">Remove Domain</button>
-          </div>
-          <label>${settingLabel("Notes", TOOLTIP_TEXT.notes, `domain-${domain.id}-notes`)}
+          <label class="domain-notes-field">${settingLabel("Notes", TOOLTIP_TEXT.notes, `domain-${domain.id}-notes`)}
             <textarea data-kind="domain-field" data-domain="${escapeHtml(domain.id)}" data-field="notes">${escapeHtml(domain.notes || "")}</textarea>
           </label>
         </section>
 
-        <section class="section-anchor" id="${rulesId}">
-          <h3>Domain Rules</h3>
-          <button data-action="add-domain-rule" data-domain="${escapeHtml(domain.id)}">Add domain rule</button>
+        <section class="section-anchor domain-rules-section" id="${rulesId}">
+          <div class="panel-header-row">
+            <h3>Domain Rules</h3>
+            <div class="domain-rules-actions">
+              <button class="danger subtle-danger" data-action="remove-domain" data-domain="${escapeHtml(domain.id)}">Remove Domain</button>
+              <button class="primary" data-action="add-domain-rule" data-domain="${escapeHtml(domain.id)}">Add domain rule</button>
+            </div>
+          </div>
           <div class="section-stack">
             ${rules.map((rule) => renderRuleCard(rule, {
               scope: "domain",
@@ -686,11 +1123,38 @@
     return "";
   }
 
+  function resolveInitialTargetFromHash() {
+    const rawHash = String(globalThis.location.hash || "").replace(/^#/, "").trim();
+    if (!rawHash) return "";
+
+    if (rawHash === "section-general" || rawHash === "section-global-rules") {
+      return rawHash;
+    }
+
+    if (!rawHash.startsWith("section-domain-")) {
+      return "";
+    }
+
+    const domainKey = findDomainForTarget(rawHash);
+    if (!domainKey) {
+      return "";
+    }
+
+    uiState.domainsExpanded = true;
+    uiState.expandedDomains.add(domainKey);
+    return rawHash;
+  }
+
   function navigateTo(targetId) {
     uiState.activeTarget = targetId;
     globalThis.location.hash = targetId;
     renderMainContent();
     renderSidebar();
+  }
+
+  function navigateToGeneralSection() {
+    uiState.activeTarget = "section-general";
+    navigateTo("section-general");
   }
 
   function moveRule(list, ruleId, direction) {
@@ -758,12 +1222,70 @@
     return Number.isFinite(parsed) ? parsed : fallback;
   }
 
+  function resetTooltipPosition(container) {
+    if (!container) return;
+    container.classList.remove("is-flipped");
+    const content = container.querySelector(".cf-tooltip-content");
+    if (!content) return;
+    content.style.setProperty("--tooltip-shift-x", "0px");
+  }
+
+  function applyTooltipHorizontalClamp(content, viewportPadding) {
+    if (!content) return;
+    const rect = content.getBoundingClientRect();
+    let shiftX = 0;
+
+    if (rect.right > globalThis.innerWidth - viewportPadding) {
+      shiftX = (globalThis.innerWidth - viewportPadding) - rect.right;
+    }
+
+    if (rect.left + shiftX < viewportPadding) {
+      shiftX += viewportPadding - (rect.left + shiftX);
+    }
+
+    content.style.setProperty("--tooltip-shift-x", `${Math.round(shiftX)}px`);
+  }
+
+  function positionTooltipWithinViewport(container) {
+    if (!container) return;
+    const content = container.querySelector(".cf-tooltip-content");
+    if (!content) return;
+
+    const viewportPadding = 8;
+    resetTooltipPosition(container);
+    applyTooltipHorizontalClamp(content, viewportPadding);
+
+    const rect = content.getBoundingClientRect();
+    const overflowBottom = rect.bottom > globalThis.innerHeight - viewportPadding;
+    const spaceAbove = rect.top - viewportPadding;
+    const tooltipHeight = rect.height;
+    const canFlipUp = spaceAbove >= tooltipHeight;
+
+    container.classList.toggle("is-flipped", overflowBottom && canFlipUp);
+    if (container.classList.contains("is-flipped")) {
+      applyTooltipHorizontalClamp(content, viewportPadding);
+    }
+  }
+
+  function scheduleTooltipPosition(container) {
+    if (!container) return;
+    setTimeout(() => {
+      positionTooltipWithinViewport(container);
+    }, 0);
+  }
+
   function setTooltipOpen(container, isOpen) {
     if (!container) return;
     container.classList.toggle("is-open", isOpen);
     const icon = container.querySelector(".cf-tooltip-icon");
     if (icon) {
       icon.setAttribute("aria-expanded", isOpen ? "true" : "false");
+    }
+
+    if (isOpen) {
+      scheduleTooltipPosition(container);
+    } else {
+      resetTooltipPosition(container);
     }
   }
 
@@ -805,6 +1327,23 @@
       return;
     }
     setTooltipOpen(container, false);
+  }
+
+  function handleTooltipMouseOver(event) {
+    const container = event.target.closest(".cf-tooltip");
+    if (!container) return;
+    scheduleTooltipPosition(container);
+  }
+
+  function handleTooltipFocusIn(event) {
+    const container = event.target.closest(".cf-tooltip");
+    if (!container) return;
+    scheduleTooltipPosition(container);
+  }
+
+  function handleWindowResize() {
+    const openTooltips = document.querySelectorAll(".cf-tooltip.is-open, .cf-tooltip:focus-within");
+    openTooltips.forEach((tooltip) => positionTooltipWithinViewport(tooltip));
   }
 
   function handleSidebarClick(event) {
@@ -1043,6 +1582,10 @@
   }
 
   async function notifyBackgroundSettingsChanged() {
+    if (DEV_MODE_ENABLED || !api?.runtime?.sendMessage) {
+      return;
+    }
+
     try {
       await api.runtime.sendMessage({ type: "CHAOS_FILL_SETTINGS_UPDATED" });
     } catch (_error) {
@@ -1051,6 +1594,7 @@
   }
 
   async function saveState() {
+    const storage = getOptionsStorage();
     syncFixedRowsToState();
 
     validateRegexRules(appState.globalRules, "global rules");
@@ -1062,7 +1606,7 @@
     appState.settings.fallback.maxLength = Math.max(1, Math.min(1024, parseNumber(appState.settings.fallback.maxLength, 20)));
     appState.settings.fallback.loremMaxWords = Math.max(1, Math.min(100, parseNumber(appState.settings.fallback.loremMaxWords, 6)));
 
-    appState = await globalThis.ChaosFillStorage.saveState(appState);
+    appState = await storage.saveState(appState);
     initFixedRowsFromState();
     await notifyBackgroundSettingsChanged();
     render();
@@ -1070,18 +1614,19 @@
   }
 
   async function resetState() {
-    appState = await globalThis.ChaosFillStorage.resetState();
+    const storage = getOptionsStorage();
+    appState = await storage.resetState();
     initFixedRowsFromState();
     uiState.domainsExpanded = false;
     uiState.expandedDomains = new Set();
-    uiState.activeTarget = "section-general";
     await notifyBackgroundSettingsChanged();
-    render();
+    navigateToGeneralSection();
     showStatus("Defaults restored");
   }
 
   async function exportState() {
-    const json = await globalThis.ChaosFillStorage.exportState();
+    const storage = getOptionsStorage();
+    const json = await storage.exportState();
     const blob = new Blob([json], { type: "application/json" });
     const url = URL.createObjectURL(blob);
 
@@ -1095,19 +1640,19 @@
   }
 
   async function importStateFromFile(file) {
+    const storage = getOptionsStorage();
     const text = await file.text();
-    appState = await globalThis.ChaosFillStorage.importState(text);
+    appState = await storage.importState(text);
     initFixedRowsFromState();
     uiState.domainsExpanded = false;
     uiState.expandedDomains = new Set();
-    uiState.activeTarget = "section-general";
     await notifyBackgroundSettingsChanged();
-    render();
+    navigateToGeneralSection();
     showStatus("Settings imported");
   }
 
   async function getCurrentTabDomainKey() {
-    if (!api.tabs?.query) return "";
+    if (DEV_MODE_ENABLED || !api?.tabs?.query) return "";
 
     const tabs = await new Promise((resolve) => {
       try {
@@ -1124,7 +1669,7 @@
 
     try {
       const hostname = new URL(activeTab.url).hostname;
-      return globalThis.ChaosFillStorage.normalizeDomain(hostname);
+      return getOptionsStorage().normalizeDomain(hostname);
     } catch (_error) {
       return "";
     }
@@ -1132,13 +1677,20 @@
 
   async function init() {
     hideStatus();
-    appState = await globalThis.ChaosFillStorage.getState();
+    const storage = getOptionsStorage();
+    appState = await storage.getState();
     initFixedRowsFromState();
+    applyDevModeIndicator();
 
     const activeDomain = await getCurrentTabDomainKey();
     if (activeDomain && appState.domains?.[activeDomain]) {
       uiState.domainsExpanded = true;
       uiState.expandedDomains.add(activeDomain);
+    }
+
+    const hashTarget = resolveInitialTargetFromHash();
+    if (hashTarget) {
+      uiState.activeTarget = hashTarget;
     }
 
     $("sidebar").addEventListener("click", handleSidebarClick);
@@ -1147,7 +1699,10 @@
     $("mainContent").addEventListener("click", handleMainClick);
     document.addEventListener("click", handleDocumentClick);
     document.addEventListener("keydown", handleDocumentKeydown);
+    document.addEventListener("mouseover", handleTooltipMouseOver);
+    document.addEventListener("focusin", handleTooltipFocusIn);
     document.addEventListener("mouseout", handleTooltipMouseOut);
+    globalThis.addEventListener("resize", handleWindowResize);
 
     $("saveBtn").addEventListener("click", async () => {
       try {
