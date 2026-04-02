@@ -2,35 +2,35 @@
 
 ## Current Context
 - Branch: main
-- Task: Add reproducible DMG build script for ChaosFill macOS app.
-- Status: Completed and locally verified.
+- Task: Improve repo hygiene and documentation (`.gitignore` + README download/install clarity).
+- Status: Completed; files updated for commit.
 
 ## Scope
-- Files in scope: `scripts/build-dmg.sh`, `WORKLOG.md`
-- Files explicitly out of scope: `WebExtension/*`, app/runtime logic, Xcode project settings
+- Files in scope: `.gitignore`, `README.md`, `WORKLOG.md`
+- Files explicitly out of scope: `WebExtension/*`, extension/app logic, Xcode project settings
 
 ## Recent Changes
-- Added `scripts/build-dmg.sh` using native `hdiutil` and DerivedData app auto-detection.
-- Added optional script args: build configuration (`Debug`/`Release`) and custom output path.
-- Verified output DMG creation at `/tmp/ChaosFill.dmg`.
-- Verified DMG mounts with `ChaosFill.app` and `Applications` symlink present.
+- Updated `.gitignore` with grouped rules for build artifacts, DMG files, Xcode files, macOS files, and Node modules.
+- Added ignore entries for `dist/`, `build/`, `*.dmg`, `*.xcworkspace`, `*.xcuserdata/`, and `node_modules/` while keeping existing entries.
+- Refactored `README.md` into concise sections: Download, Features, Installation, Development, Notes, Feedback.
+- Added GitHub Releases link and direct DMG download link in README.
+- Preserved core existing README technical content (project layout, runtime behavior summary, debugging notes, CLI build check).
 
 ## Known Issues / Observations
-- `hdiutil` operations may fail in sandboxed environments; works when run with normal local macOS permissions.
+- Direct DMG link assumes release assets are published with the filename `ChaosFill.dmg`.
 
 ## Decisions Made
-- Kept DMG generation dependency-free (`hdiutil` only).
-- Kept layout/styling customization out of scope for reliability and reproducibility.
-- Default output path is `dist/ChaosFill.dmg` in repo root.
+- Kept README concise and scannable while retaining important existing operational details.
+- Used minimal `.gitignore` additions only; no build or runtime logic changes.
 
 ## Next Steps
-- Run `./scripts/build-dmg.sh` after each fresh Xcode app build.
-- Optionally run `./scripts/build-dmg.sh Release` for release packaging.
+- Commit docs/hygiene update.
+- Optionally validate README links after next GitHub release publish.
 
 ## Validation Checklist
 - [x] Build succeeds
 - [x] No regression in existing functionality
-- [ ] UI behaves correctly
+- [x] UI behaves correctly
 - [ ] Tested in dev/mock mode
 - [ ] Tested in real Safari extension (if applicable)
 
