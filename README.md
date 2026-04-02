@@ -8,7 +8,7 @@ It helps you create domain-aware fill rules and generator-based values to speed 
 - Latest release:  
   https://github.com/PaweLuszynski/ChaosFiller/releases
 - Direct download (macOS installer):  
-  [ChaosFill.dmg](https://github.com/PaweLuszynski/ChaosFiller/releases/latest/download/ChaosFill.dmg)
+  [ChaosFill.dmg](https://github.com/PaweLuszynski/ChaosFiller/releases/download/v0.1.0/ChaosFill.dmg)
 
 ## Features
 
