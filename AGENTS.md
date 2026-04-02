@@ -120,3 +120,34 @@
   - Previous chat history.
   - Hidden memory.
   - Previous decisions unless written in repository files.
+
+## WORKLOG Maintenance Rules
+
+- Purpose:
+  - `WORKLOG.md` is the single source of truth for current work state.
+  - It must reflect the latest changes so future sessions do not rely on chat history.
+- 1. Mandatory Updates:
+  - After every meaningful change (code, UI, logic), update `WORKLOG.md`.
+  - Include the `WORKLOG.md` update in the same commit.
+- 2. Sections to Maintain:
+  - `Current Context`: Branch, Task, Status.
+  - `Scope`: Files in scope, files out of scope (if relevant).
+  - `Recent Changes`: short bullets of what changed.
+  - `Decisions Made`: important technical or UX decisions.
+  - `Known Issues / Observations`: bugs, edge cases, unexpected behavior.
+  - `Next Steps`: immediate follow-up actions.
+- 3. Writing Style:
+  - Keep entries short and factual.
+  - No long explanations.
+  - No code blocks.
+  - Do not duplicate `AGENTS.md`.
+- 4. Session Start Behavior:
+  - Always read `WORKLOG.md` before starting work.
+  - Use it as the primary context source.
+  - Do not rely on previous chat history.
+- 5. Commit Rule:
+  - Any code change must include a `WORKLOG.md` update.
+  - Example commit message: `fix: align dropdown height + update worklog`.
+- 6. Constraints:
+  - Do not delete useful history unless obsolete.
+  - Keep prior entries when still relevant to ongoing work.
