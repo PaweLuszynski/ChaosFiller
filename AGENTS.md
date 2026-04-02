@@ -82,3 +82,41 @@
 3. Identify the generic failure mode.
 4. Apply the minimal safe fix.
 5. Validate across multiple field types and page structures.
+
+## Context Management & Session Strategy
+
+- Purpose:
+  - Codex context window is limited.
+  - Chat history is not reliable long-term memory.
+  - Store important context in repository files.
+- Persistent Context (MANDATORY):
+  - `AGENTS.md`: project rules and constraints.
+  - `WORKLOG.md`: current work state.
+  - `PLANS.md` (optional): multi-step task plans.
+- `WORKLOG.md` Rules:
+  - Record current branch.
+  - Record current task.
+  - Record files touched.
+  - Record known issues.
+  - Record validation steps and outcomes.
+  - Record the last known working state.
+- Session Start Pattern:
+  - Read `AGENTS.md`.
+  - Read `WORKLOG.md` if it exists.
+  - Limit scope to relevant files only.
+  - Do not assume previous chat context.
+- Scope Control (CRITICAL):
+  - Define file scope before coding.
+  - Avoid loading the entire repository.
+  - Explicitly list files to inspect or modify.
+- Task Strategy:
+  - Break work into small, isolated changes.
+  - Avoid large multi-area refactors.
+  - Prefer iterative improvements with quick validation.
+- MCP Usage:
+  - Use Playwright MCP only when needed.
+  - Avoid unnecessary MCP calls to reduce context usage.
+- What NOT to rely on:
+  - Previous chat history.
+  - Hidden memory.
+  - Previous decisions unless written in repository files.
