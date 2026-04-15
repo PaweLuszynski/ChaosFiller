@@ -5,18 +5,42 @@
     return configLike?.settings || configLike || {};
   }
 
-  function logFieldResolution(bundle, resolved, generated, resultStatus) {
-    if (!resolved?.debug?.enabled) return;
+  function shorten(value, max = 80) {
+    const text = String(value || "").replace(/\s+/g, " ").trim();
+    return text.length <= max ? text : `${text.slice(0, max - 1)}…`;
+  }
 
-    console.log(RULE_LOG_PREFIX, "fill decision", {
-      fieldMetadata: bundle?.metadata || {},
-      source: resolved.source,
-      ruleId: resolved.ruleId,
-      ruleScore: resolved.ruleScore ?? null,
-      generator: resolved.generator?.type || "lorem",
-      resolvedKey: resolved.resolvedKey,
-      resultStatus,
-      generatedPreview: String(generated ?? "").slice(0, 120)
+  function summarizeField(bundle, element = null) {
+    const metadata = bundle?.metadata
+      || (element ? globalThis.ChaosFillDom.getFieldMetadata(element) : {})
+      || {};
+
+    return {
+      name: shorten(metadata.name),
+      id: shorten(metadata.id),
+      type: shorten(metadata.type),
+      labelText: shorten(metadata.labelText),
+      placeholder: shorten(metadata.placeholder),
+      ariaLabel: shorten(metadata.ariaLabel),
+      ariaLabelledbyText: shorten(metadata.ariaLabelledbyText)
+    };
+  }
+
+  function logFieldDecision(payload) {
+    console.log(RULE_LOG_PREFIX, `FIELD_FILL_DECISION ${JSON.stringify(payload)}`);
+  }
+
+  function logFieldResolution(bundle, resolved, generated, resultStatus) {
+    logFieldDecision({
+      field: summarizeField(bundle),
+      status: resultStatus,
+      reason: resultStatus === "skipped" ? (resolved?.skipReason || "") : "",
+      source: resolved?.source || "",
+      matchedRuleId: resolved?.ruleId || null,
+      ruleScore: resolved?.ruleScore ?? null,
+      generator: resolved?.generator?.type || "lorem",
+      resolvedKey: resolved?.resolvedKey || "",
+      generatedPreview: shorten(generated, 120)
     });
   }
 
@@ -246,10 +270,22 @@
       const settings = getSettings(config);
 
       if (!globalThis.ChaosFillDom.isFillableElement(element, settings)) {
+        logFieldDecision({
+          field: summarizeField(null, element),
+          status: "skipped",
+          reason: "not-fillable",
+          matchedRuleId: null
+        });
         return { status: "skipped", reason: "not-fillable" };
       }
 
       if (shouldSkipForExistingContent(element, settings)) {
+        logFieldDecision({
+          field: summarizeField(null, element),
+          status: "skipped",
+          reason: "already-has-content",
+          matchedRuleId: null
+        });
         return { status: "skipped", reason: "already-has-content" };
       }
 
@@ -257,6 +293,12 @@
       const ignoreTokens = getCombinedIgnoreTokens(config, settings);
 
       if (globalThis.ChaosFillRules.shouldIgnoreByTokens(bundle.text, ignoreTokens)) {
+        logFieldDecision({
+          field: summarizeField(bundle),
+          status: "skipped",
+          reason: "ignored-token",
+          matchedRuleId: null
+        });
         return { status: "skipped", reason: "ignored-token" };
       }
 
@@ -266,6 +308,11 @@
         config,
         globalThis.location.hostname
       );
+
+      if (resolved?.skipFill === true) {
+        logFieldResolution(bundle, resolved, "", "skipped");
+        return { status: "skipped", reason: resolved.skipReason || "disabled-rule" };
+      }
 
       const kind = globalThis.ChaosFillDom.getFieldKind(element);
       const generated = resolveGeneratedValue(element, resolved, config, settings, context, bundle);
@@ -298,6 +345,12 @@
 
       return { status: "skipped", reason: "no-change" };
     } catch (error) {
+      logFieldDecision({
+        field: summarizeField(null, element),
+        status: "error",
+        reason: String(error),
+        matchedRuleId: null
+      });
       return { status: "error", reason: String(error) };
     }
   }

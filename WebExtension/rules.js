@@ -1,4 +1,5 @@
 (() => {
+  const RULE_LOG_PREFIX = "CHAOSFILL_RULES:";
   const DEFAULT_SENSITIVE_HOST_PARTS = [
     "bank",
     "banking",
@@ -77,6 +78,15 @@
       .toLowerCase()
       .replace(/\s+/g, " ")
       .trim();
+  }
+
+  function shorten(value, max = 80) {
+    const text = String(value || "").replace(/\s+/g, " ").trim();
+    return text.length <= max ? text : `${text.slice(0, max - 1)}…`;
+  }
+
+  function logRuleEvent(eventName, payload) {
+    console.log(RULE_LOG_PREFIX, `${eventName} ${JSON.stringify(payload)}`);
   }
 
   function getSettings(configLike) {
@@ -335,8 +345,20 @@
     return best;
   }
 
-  function evaluateRuleMatch(rule, bundle, hostname, index, source) {
-    if (!rule || rule.enabled === false || !rule.match) {
+  function evaluateRuleMatch(rule, bundle, hostname, index, source, options = {}) {
+    const includeDisabled = options.includeDisabled === true;
+    const onlyDisabled = options.onlyDisabled === true;
+    const isDisabled = rule?.enabled === false;
+
+    if (!rule || !rule.match) {
+      return null;
+    }
+
+    if (onlyDisabled && !isDisabled) {
+      return null;
+    }
+
+    if (!onlyDisabled && isDisabled && !includeDisabled) {
       return null;
     }
 
@@ -381,6 +403,23 @@
     };
   }
 
+  function collectRuleCandidates(rules, bundle, hostname, source) {
+    const safeRules = Array.isArray(rules) ? rules : [];
+    const matches = [];
+
+    for (let index = 0; index < safeRules.length; index += 1) {
+      const evaluated = evaluateRuleMatch(safeRules[index], bundle, hostname, index, source, {
+        includeDisabled: true
+      });
+      if (evaluated) {
+        matches.push(evaluated);
+      }
+    }
+
+    matches.sort(compareRuleMatches);
+    return matches;
+  }
+
   function compareRuleMatches(a, b) {
     if (a.score !== b.score) return b.score - a.score;
     if ((SOURCE_PRIORITY[a.source] || 0) !== (SOURCE_PRIORITY[b.source] || 0)) {
@@ -402,17 +441,16 @@
     return a.index - b.index;
   }
 
-  function resolveRuleMatches(rules, bundle, hostname, source) {
-    const safeRules = Array.isArray(rules) ? rules : [];
-    const matches = [];
-
-    for (let index = 0; index < safeRules.length; index += 1) {
-      const evaluated = evaluateRuleMatch(safeRules[index], bundle, hostname, index, source);
-      if (evaluated) {
-        matches.push(evaluated);
+  function resolveRuleMatches(rules, bundle, hostname, source, options = {}) {
+    const matches = collectRuleCandidates(rules, bundle, hostname, source).filter((match) => {
+      if (options.onlyDisabled === true) {
+        return match.rule?.enabled === false;
       }
-    }
-
+      if (options.includeDisabled === true) {
+        return true;
+      }
+      return match.rule?.enabled !== false;
+    });
     matches.sort(compareRuleMatches);
     return {
       best: matches[0] || null,
@@ -602,7 +640,9 @@
       source: match.source,
       ruleId: match.rule?.id || "",
       title: match.rule?.title || "",
+      enabled: match.rule?.enabled !== false,
       generator: match.rule?.generator?.type || "lorem",
+      resolvedKey: match.rule?.resolvedKey || "",
       score: match.score,
       orderIndex: match.index,
       kind: match.match?.kind || "",
@@ -613,14 +653,39 @@
     };
   }
 
-  function logResolutionDecision(payload) {
-    if (!payload?.enabled) return;
+  function summarizeFieldForLog(bundle) {
+    const metadata = bundle?.metadata || {};
+    return {
+      name: shorten(metadata.name),
+      id: shorten(metadata.id),
+      type: shorten(metadata.type),
+      labelText: shorten(metadata.labelText),
+      placeholder: shorten(metadata.placeholder),
+      ariaLabel: shorten(metadata.ariaLabel),
+      ariaLabelledbyText: shorten(metadata.ariaLabelledbyText)
+    };
+  }
 
-    console.log("CHAOSFILL_RULES:", "field metadata", payload.fieldMetadata);
-    console.log("CHAOSFILL_RULES:", "structured match input", payload.matchInput);
-    console.log("CHAOSFILL_RULES:", "matched rules", payload.matchedRules);
-    console.log("CHAOSFILL_RULES:", "chosen rule", payload.chosenRule);
-    console.log("CHAOSFILL_RULES:", "resolved", payload.resolved);
+  function logResolutionDecision(payload) {
+    logRuleEvent("RULE_CANDIDATES_BEFORE_FILTER", {
+      field: payload.fieldMetadata,
+      candidates: payload.beforeFilter
+    });
+    logRuleEvent("RULE_CANDIDATES_AFTER_FILTER", {
+      field: payload.fieldMetadata,
+      candidates: payload.afterFilter
+    });
+
+    for (const skipped of payload.disabledSkipped || []) {
+      logRuleEvent("DISABLED_RULE_SKIPPED", skipped);
+    }
+
+    logRuleEvent("RULE_MATCH_DECISION", {
+      field: payload.fieldMetadata,
+      chosenRule: payload.chosenRule,
+      blockedRule: payload.blockedRule,
+      decision: payload.resolved
+    });
   }
 
   function resolveGenerator(element, bundle, configLike, hostname) {
@@ -629,17 +694,24 @@
     const globalRules = Array.isArray(config.globalRules) ? config.globalRules : [];
 
     const safeHostname = hostname || globalThis.location.hostname;
-    const domainResult = resolveRuleMatches(domainRules, bundle, safeHostname, "domain-rule");
-    const globalResult = resolveRuleMatches(globalRules, bundle, safeHostname, "global-rule");
-    const matched = domainResult.best || globalResult.best || null;
-    const inferred = matched ? null : inferGeneratorFromMetadata(element, bundle);
+    const domainCandidates = collectRuleCandidates(domainRules, bundle, safeHostname, "domain-rule");
+    const globalCandidates = collectRuleCandidates(globalRules, bundle, safeHostname, "global-rule");
+    const allCandidates = [...domainCandidates, ...globalCandidates].sort(compareRuleMatches);
+    const enabledCandidates = allCandidates.filter((match) => match.rule?.enabled !== false);
+    const disabledCandidates = allCandidates.filter((match) => match.rule?.enabled === false);
+    const bestOverall = allCandidates[0] || null;
+    const matched = bestOverall && bestOverall.rule?.enabled !== false ? bestOverall : null;
+    const disabledMatched = bestOverall && bestOverall.rule?.enabled === false ? bestOverall : null;
+    const inferred = bestOverall ? null : inferGeneratorFromMetadata(element, bundle);
 
-    const matchedRule = matched?.rule || null;
+    const matchedRule = matched?.rule || disabledMatched?.rule || null;
     const source = matched
       ? matched.source
-      : inferred
-        ? "inferred-key"
-        : "fallback";
+      : disabledMatched
+        ? "disabled-rule"
+        : inferred
+          ? "inferred-key"
+          : "fallback";
 
     const generator = matchedRule
       ? {
@@ -657,20 +729,32 @@
       ? matchedRule.overrideEnabled
       : (typeof matchedRule?.overrideValue === "string" && matchedRule.overrideValue.length > 0);
 
-    const debugEnabled = shouldDebugMatching(config);
     const debugPayload = {
-      enabled: debugEnabled,
-      fieldMetadata: bundle?.metadata || {},
+      enabled: shouldDebugMatching(config),
+      fieldMetadata: summarizeFieldForLog(bundle),
       matchInput: bundle?.fields || {},
-      matchedRules: [
-        ...domainResult.matches.map((match) => toDebugMatch(match)),
-        ...globalResult.matches.map((match) => toDebugMatch(match))
-      ],
+      beforeFilter: allCandidates.map((match) => toDebugMatch(match)),
+      afterFilter: enabledCandidates.map((match) => toDebugMatch(match)),
+      disabledSkipped: disabledCandidates.map((match) => ({
+        field: summarizeFieldForLog(bundle),
+        rule: toDebugMatch(match),
+        reason: "enabled=false"
+      })),
       chosenRule: matched ? toDebugMatch(matched) : null,
+      blockedRule: disabledMatched ? toDebugMatch(disabledMatched) : null,
       resolved: {
         source,
+        reason: matched
+          ? "best-enabled-candidate"
+          : disabledMatched
+            ? "best-candidate-disabled"
+            : inferred
+              ? "metadata-inference"
+              : "fallback-generator",
         generator: generator?.type || "lorem",
         resolvedKey,
+        ruleId: matchedRule?.id || null,
+        skipFill: disabledMatched !== null,
         overrideEnabled,
         overrideValuePresent: Boolean(typeof matchedRule?.overrideValue === "string" && matchedRule.overrideValue.length > 0)
       }
@@ -681,7 +765,7 @@
     return {
       source,
       ruleId: matchedRule?.id || null,
-      ruleScore: matched?.score ?? null,
+      ruleScore: matched?.score ?? disabledMatched?.score ?? null,
       outputMask: typeof matchedRule?.outputMask === "string" ? matchedRule.outputMask : "",
       generator,
       resolvedKey,
@@ -689,6 +773,8 @@
       overrideValue: typeof matchedRule?.overrideValue === "string" ? matchedRule.overrideValue : "",
       fixedValue: null,
       hasFixedValue: false,
+      skipFill: disabledMatched !== null,
+      skipReason: disabledMatched ? "disabled-rule" : "",
       debug: debugPayload
     };
   }

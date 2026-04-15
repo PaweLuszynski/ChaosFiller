@@ -1,5 +1,6 @@
 (() => {
   const api = globalThis.browser ?? globalThis.chrome;
+  const STORAGE_LOG_PREFIX = "CHAOSFILL_STORAGE:";
 
   const STORAGE_KEY = "settings";
   const CURRENT_SETTINGS_VERSION = 7;
@@ -211,6 +212,29 @@
 
   function safeString(value) {
     return String(value || "").trim();
+  }
+
+  function shorten(value, max = 80) {
+    const text = safeString(value).replace(/\s+/g, " ");
+    return text.length <= max ? text : `${text.slice(0, max - 1)}…`;
+  }
+
+  function summarizeRuleForLog(rule, scope, context = {}) {
+    return {
+      scope,
+      domain: context.domain || "",
+      id: safeString(rule?.id),
+      enabled: rule?.enabled !== false,
+      generatorType: safeString(rule?.generator?.type || "lorem"),
+      resolvedKey: safeString(rule?.resolvedKey),
+      matchKind: safeString(rule?.match?.kind || "contains"),
+      matchTarget: safeString(rule?.match?.target || "any"),
+      matchPattern: shorten(rule?.match?.pattern)
+    };
+  }
+
+  function logRuleState(phase, payload) {
+    console.log(STORAGE_LOG_PREFIX, `STORAGE_RULE_STATE ${JSON.stringify({ phase, ...payload })}`);
   }
 
   function splitTokenList(value) {
@@ -495,6 +519,14 @@
 
   async function saveState(state) {
     const normalized = normalizeState(state);
+    logRuleState("save-state", {
+      globalRules: normalized.globalRules.map((rule) => summarizeRuleForLog(rule, "global")),
+      domains: Object.values(normalized.domains || {}).map((profile) => ({
+        domain: profile.id,
+        enabled: profile.enabled !== false,
+        rules: (profile.rules || []).map((rule) => summarizeRuleForLog(rule, "domain", { domain: profile.id }))
+      }))
+    });
     await setLocal({ [STORAGE_KEY]: normalized });
     return normalized;
   }
@@ -585,6 +617,16 @@
     const dataMode = profile.dataMode && profile.dataMode !== "inherit"
       ? profile.dataMode
       : sourceState.settings.dataMode;
+
+    logRuleState("load-effective-config", {
+      hostname: normalizeDomain(hostname),
+      domain: {
+        id: profile.id,
+        enabled: profile.enabled !== false
+      },
+      globalRules: sourceState.globalRules.map((rule) => summarizeRuleForLog(rule, "global")),
+      domainRules: (profile.rules || []).map((rule) => summarizeRuleForLog(rule, "domain", { domain: profile.id }))
+    });
 
     return {
       domain: clone(profile),

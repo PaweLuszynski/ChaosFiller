@@ -2,43 +2,46 @@
 
 ## Current Context
 - Branch: main
-- Task: Improve repo hygiene and documentation (`.gitignore` + README download/install clarity).
-- Status: Completed; files updated for commit.
+- Task: Fully fix disabled field rules still allowing autofill in some runtime paths.
+- Status: Completed; precedence bug fixed and fill-pipeline logging added.
 
 ## Scope
-- Files in scope: `.gitignore`, `README.md`, `WORKLOG.md`
-- Files explicitly out of scope: `WebExtension/*`, extension/app logic, Xcode project settings
+- Files in scope: `WebExtension/storage.js`, `WebExtension/rules.js`, `WebExtension/fill.js`, `tests/disabled-rules.test.js`, `tests/storage-effective-config.test.js`, `WORKLOG.md`
+- Files explicitly out of scope: `WebExtension/options/*`, `WebExtension/background.js`, `WebExtension/content.js`, generator logic, Xcode project settings, settings UI design
 
 ## Recent Changes
-- Updated `.gitignore` with grouped rules for build artifacts, DMG files, Xcode files, macOS files, and Node modules.
-- Added ignore entries for `dist/`, `build/`, `*.dmg`, `*.xcworkspace`, `*.xcuserdata/`, and `node_modules/` while keeping existing entries.
-- Refactored `README.md` into concise sections: Download, Features, Installation, Development, Notes, Feedback.
-- Added GitHub Releases link and direct DMG download link in README.
-- Preserved core existing README technical content (project layout, runtime behavior summary, debugging notes, CLI build check).
+- Added `STORAGE_RULE_STATE` logs on save and effective-config load with compact rule summaries including `enabled`, generator, resolved key, and match data.
+- Added `RULE_CANDIDATES_BEFORE_FILTER`, `RULE_CANDIDATES_AFTER_FILTER`, `DISABLED_RULE_SKIPPED`, `RULE_MATCH_DECISION`, and `FIELD_FILL_DECISION` logs in the runtime fill pipeline.
+- Replaced the split enabled/disabled resolution path with one ordered candidate list so a higher-priority disabled rule blocks lower-priority enabled matches.
+- Added regression coverage for the remaining bug where a disabled domain rule still lost to an enabled global rule.
+- Added storage coverage proving `enabled=false` survives save/load and `getEffectiveDomainConfig`.
 
 ## Known Issues / Observations
-- Direct DMG link assumes release assets are published with the filename `ChaosFill.dmg`.
+- `options.js` and `storage.js` persist `enabled=false` correctly.
+- The remaining bug was in `WebExtension/rules.js` `resolveGenerator()`: it chose any enabled match before considering disabled matches, so a disabled domain rule could be bypassed by a lower-priority enabled global rule.
+- Manual Safari/Xcode validation is still pending in this session.
 
 ## Decisions Made
-- Kept README concise and scannable while retaining important existing operational details.
-- Used minimal `.gitignore` additions only; no build or runtime logic changes.
+- Kept the fix in the shared matcher instead of duplicating enabled checks in multiple fill entry points.
+- Disabled rules still do not generate values directly, but the highest-priority disabled candidate now blocks fill when it outranks lower-priority enabled candidates.
 
 ## Next Steps
-- Commit docs/hygiene update.
-- Optionally validate README links after next GitHub release publish.
+- Validate in Safari with clean rebuild and extension reload for best-form and context-field/form commands.
+- Commit the matcher fix, storage/fill logs, tests, and WORKLOG update together once Safari validation is complete.
 
 ## Validation Checklist
-- [x] Build succeeds
-- [x] No regression in existing functionality
-- [x] UI behaves correctly
-- [ ] Tested in dev/mock mode
-- [ ] Tested in real Safari extension (if applicable)
+- [x] Bug reproduced in automated test before the fix
+- [x] Automated regression: disabled rule blocks inference/fallback
+- [x] Automated regression: disabled domain rule blocks lower-priority enabled global rule
+- [x] Automated regression: enabled rule still fills
+- [x] Storage test: `enabled=false` survives `saveState()` and `getEffectiveDomainConfig()`
+- [x] Syntax checks: `node --check WebExtension/rules.js`, `node --check WebExtension/fill.js`, `node --check WebExtension/storage.js`
+- [ ] Tested in real Safari extension
+- [ ] Clean Xcode rebuild and extension reload completed
 
 ## Environment Notes
-- Xcode / build issues: Build app in Xcode first, then run DMG script.
-- DerivedData issues: Script auto-detects latest `$HOME/Library/Developer/Xcode/DerivedData/ChaosFill-*/Build/Products/<Config>/ChaosFill.app` and ignores `Index.noindex`.
-- Extension reload steps:
-- Known pitfalls: If app is missing, script fails with a clear error and exit code 1.
+- Extension reload steps: clean build, rebuild, then restart Safari or toggle the extension after JS changes.
+- Storage logs appear where `getEffectiveDomainConfig()` / `saveState()` run; field candidate and fill decision logs appear in the actual rule/fill pipeline.
 
 ## Usage Rules
 
